@@ -112,6 +112,16 @@ jobs:
           CONFIG_PACKAGE_kmod-usb-net-rndis=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-eem=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-subset=y
+
+          CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+          CONFIG_PACKAGE_kmod-usb-net-asix=y
+          CONFIG_PACKAGE_kmod-usb-net-asix-ax88179=y
+          CONFIG_PACKAGE_kmod-usb-net-smsc95xx=y
+          CONFIG_PACKAGE_kmod-usb-net-lan78xx=y
+          CONFIG_PACKAGE_kmod-usb-net-dm9601-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-sr9700=y
           CONFIG_PACKAGE_usbutils=y
 
           CONFIG_PACKAGE_iperf3=y
@@ -123,7 +133,7 @@ jobs:
           make defconfig
 
           echo "Selected test packages:"
-          grep -E '^CONFIG_PACKAGE_(kmod-uwe5622|uwe5622-firmware|luci|luci-ssl|luci-theme-footstrap|luci-theme-bootstrap|kmod-usb-net|kmod-usb-net-rndis|kmod-usb-net-cdc-ether|kmod-usb-net-cdc-ncm|usbutils|iperf3|iw|iwinfo|wireless-regdb)=y' .config
+          grep -E '^CONFIG_PACKAGE_(kmod-uwe5622|uwe5622-firmware|luci|luci-ssl|luci-theme-footstrap|luci-theme-bootstrap|kmod-usb-net|kmod-usb-net-rndis|kmod-usb-net-cdc-ether|kmod-usb-net-cdc-ncm|kmod-usb-net-cdc-eem|kmod-usb-net-cdc-subset|kmod-usb-net-rtl8152|kmod-usb-net-asix|kmod-usb-net-asix-ax88179|kmod-usb-net-smsc95xx|kmod-usb-net-lan78xx|kmod-usb-net-dm9601-ether|kmod-usb-net-sr9700|usbutils|iperf3|iw|iwinfo|wireless-regdb)=y' .config
 
       - name: Download sources
         working-directory: openwrt
@@ -155,6 +165,10 @@ jobs:
             kmod-uwe5622 uwe5622-firmware \
             luci luci-ssl luci-theme-footstrap luci-theme-bootstrap \
             kmod-usb-net-rndis kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm \
+            kmod-usb-net-cdc-eem kmod-usb-net-cdc-subset \
+            kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179 \
+            kmod-usb-net-smsc95xx kmod-usb-net-lan78xx \
+            kmod-usb-net-dm9601-ether kmod-usb-net-sr9700 \
             usbutils iw iwinfo wireless-regdb iperf3; do
             if grep -q "^$p " "$MANIFEST"; then
               printf '  OK      %s\n' "$p"
