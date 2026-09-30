@@ -27,7 +27,7 @@ Required end result:
 ```
 branch: dev/owrt-25.12-uwe5622-current
 head at 2026-09-30 snapshot:
-618c9ffc5c9878f6e2040f81a0ae3420caea1391
+c3a6f1315bacaaf5f20cd3b3bbe26442286fce2f
 ```
 
 Do not work on main unless explicitly instructed.
@@ -270,26 +270,70 @@ It validates:
 
 ## 13. Current full-image status at handoff
 
-Latest observed run:
+Latest completed full-image run:
 
 ```
 workflow: Build test image (OpenWrt 25.12.5)
 run #7
 run id: 36739712280
 head: 618c9ffc5c9878f6e2040f81a0ae3420caea1391
+overall conclusion: failure (post-build DTB QA only)
 ```
 
-At the time of handoff it was still:
+The image build itself completed successfully.
+
+Confirmed by the final manifest/validation before the DTB check:
+
+- ext4 and squashfs Orange Pi Zero 3 images were generated;
+- UWE5622 kmod and firmware are present;
+- LuCI and Footstrap are present;
+- the complete requested modem/QMI/MBIM/NCM/USB serial stack is present;
+- common USB Ethernet drivers are present;
+- diagnostics packages are present;
+- `sprdwl_cfg80211_dump_station`, `sprdwl_add_assoc_sta`,
+  `sprdwl_cfg80211_get_channel` and `disable_powersave` symbols are present;
+- delayed-load policy check passed.
+
+Generated compressed image sizes in run #7 were approximately:
 
 ```
-Build image: in progress
-Validate image: pending
-Upload artifact: pending
+ext4-sdcard.img.gz      19 MiB
+squashfs-sdcard.img.gz 15 MiB
 ```
 
-No artifact had yet been uploaded.
+Artifact was uploaded successfully:
 
-Do not claim success/failure without checking current GitHub status first.
+```
+artifact id: 11117250580
+artifact name: opiz3-openwrt-25.12.5-uwe5622-test
+artifact size: 33968727 bytes
+artifact sha256: ccdb9cbc87878224335a4c6e2624894b6e89842a03a2019e5ebb44789b9af445
+```
+
+The red workflow result does **not** indicate a compile or image-generation
+failure.
+
+The failure occurred only in the final generated-DTB QA. Inspection of the
+saved artifact showed `mmc1-node.dts` was empty. The generated-DTS extractor
+used incorrect brace escaping in its awk expressions, so it failed to select
+the `mmc@4021000` node before any property validation took place.
+
+This CI parser bug was fixed after run #7 in commit:
+
+```
+c3a6f1315bacaaf5f20cd3b3bbe26442286fce2f
+ci: fix DTB node brace parsing
+```
+
+The fix changes only post-build DTB validation. No driver, DTS patch, package
+selection or image content was changed by that commit.
+
+Therefore:
+
+- run #7 images are valid build artifacts and are suitable for hardware testing;
+- run #7 does **not** constitute a completed DTB acceptance check;
+- the corrected DTB QA must pass on the next substantive full-image build;
+- do not trigger a full rebuild solely to turn this historical CI run green.
 
 ## 14. Test image package set
 
@@ -358,20 +402,21 @@ Do not:
 
 ## 17. Immediate next action
 
-First check current status of run #7 or newer full-image run.
+Use the run #7 image for the first hardware acceptance pass:
 
-If successful:
+- download and flash the preferred `.img.gz`;
+- boot on real OPi Zero 3 with wired management available;
+- collect the debug bundle before large driver changes;
+- verify SDIO, firmware and delayed UWE5622 module loading;
+- test 2.4 GHz and 5 GHz AP/STA behavior;
+- verify station enumeration in `iw`, iwinfo and LuCI;
+- measure local Ethernet-to-WLAN throughput;
+- exercise reload/reconnect/reboot behavior;
+- proceed toward the 12+ hour stability test.
 
-- download/flash the `.img.gz`;
-- boot on real OPi Zero 3;
-- collect debug bundle;
-- execute the hardware acceptance plan.
-
-If failed:
-
-- diagnose the first real build failure;
-- preserve currently working driver patches;
-- do not rewrite the port wholesale unless evidence requires it.
+On the next substantive full-image CI run, confirm that the corrected generated
+DTB QA passes. Do not spend a full rebuild only to revalidate the historical
+run #7 CI parser failure.
 
 ## 18. Success definition
 
