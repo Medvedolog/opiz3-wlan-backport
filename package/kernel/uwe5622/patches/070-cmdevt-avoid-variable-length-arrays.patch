@@ -1,0 +1,71 @@
+From: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+Subject: [PATCH] unisocwifi: size command buffers with constant expressions
+
+Five command helpers in cmdevt.c and vendor.c declare their response buffer
+as u8 r_buf[r_len], which the compiler treats as a variable length array.
+OpenWrt builds kernel modules with -Werror=vla, so the driver fails to build
+there.
+
+In every case r_len is initialised from a sizeof expression that is already
+constant at compile time; it is only a variable because
+sprdwl_cmd_send_recv() updates it with the length actually received. Size
+the arrays with that same constant expression and leave r_len alone.
+
+No functional change: every buffer keeps exactly the size it had before,
+and the driver no longer puts variable length arrays on the kernel stack.
+
+Signed-off-by: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+---
+diff --git a/unisocwifi/cmdevt.c b/unisocwifi/cmdevt.c
+index 3493c85..35069a6 100644
+--- a/unisocwifi/cmdevt.c
++++ b/unisocwifi/cmdevt.c
+@@ -681,7 +681,7 @@ int sprdwl_sync_version(struct sprdwl_priv *priv)
+ 	struct sprdwl_cmd_api_t *drv_api = NULL;
+ 	struct sprdwl_cmd_api_t *fw_api = NULL;
+ 	u16 r_len = sizeof(*fw_api);
+-	u8 r_buf[r_len];
++	u8 r_buf[sizeof(*fw_api)];
+ 	int ret = 0;
+ 
+ 	msg = sprdwl_cmd_getbuf(priv, sizeof(struct sprdwl_cmd_api_t),
+@@ -821,7 +821,7 @@ int sprdwl_get_fw_info(struct sprdwl_priv *priv)
+ 	struct sprdwl_tlv_data *tlv;
+ 	u16 r_len = sizeof(*p) + GET_INFO_TLV_RBUF_SIZE;
+ 	u16 r_len_ori = r_len;
+-	u8 r_buf[r_len];
++	u8 r_buf[sizeof(*p) + GET_INFO_TLV_RBUF_SIZE];
+ 	u8 compat_ver = 0;
+ 	unsigned int len_count = 0;
+ 	bool b_tlv_data_chk = true;
+@@ -3597,7 +3597,7 @@ int sprdwl_set_packet_offload(struct sprdwl_priv *priv, u8 vif_ctx_id,
+ 	struct sprdwl_cmd_packet_offload *p;
+ 	struct sprdwl_cmd_packet_offload *packet = NULL;
+ 	u16 r_len = sizeof(*packet);
+-	u8 r_buf[r_len];
++	u8 r_buf[sizeof(*packet)];
+ 
+ 	msg = sprdwl_cmd_getbuf(priv, sizeof(*p) + len, vif_ctx_id,
+ 				SPRDWL_HEAD_RSP, WIFI_CMD_PACKET_OFFLOAD);
+diff --git a/unisocwifi/vendor.c b/unisocwifi/vendor.c
+index c2be2b3..9427a5d 100644
+--- a/unisocwifi/vendor.c
++++ b/unisocwifi/vendor.c
+@@ -471,7 +471,7 @@ static int sprdwl_vendor_get_llstat_handler(struct wiphy *wiphy,
+ 	struct wifi_iface_stat *iface_st;
+ 	struct sprdwl_llstat_radio *dif_radio;
+ 	u16 r_len = sizeof(*llst);
+-	u8 r_buf[r_len], ret, i;
++	u8 r_buf[sizeof(*llst)], ret, i;
+ 	u32 reply_radio_length, reply_iface_length;
+ 
+ 	struct sprdwl_priv *priv = wiphy_priv(wiphy);
+@@ -593,7 +593,7 @@ static int sprdwl_vendor_clr_llstat_handler(struct wiphy *wiphy,
+ 	struct nlattr *tb[SPRDWL_LL_STATS_CLR_MAX + 1];
+ 	u32 *stats_clear_rsp_mask, stats_clear_req_mask = 0;
+ 	u16 r_len = sizeof(*stats_clear_rsp_mask);
+-	u8 r_buf[r_len];
++	u8 r_buf[sizeof(*stats_clear_rsp_mask)];
+ 	u32 reply_length, ret, err;
+ 
+ 	struct sprdwl_priv *priv = wiphy_priv(wiphy);
