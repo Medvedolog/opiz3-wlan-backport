@@ -83,9 +83,19 @@ jobs:
       - name: Build
         working-directory: sdk
         run: |
-          make package/kernel/mac80211/compile -j$(nproc) V=s 2>&1 | tail -40
+          set -o pipefail
+          make package/kernel/mac80211/compile -j$(nproc) V=s > mac80211.log 2>&1 || {
+            tail -120 mac80211.log
+            exit 1
+          }
+          tail -40 mac80211.log
+
           make package/kernel/uwe5622/compile \
-               package/firmware/uwe5622-firmware/compile -j$(nproc) V=s 2>&1 | tail -60
+               package/firmware/uwe5622-firmware/compile -j$(nproc) V=s > uwe5622.log 2>&1 || {
+            tail -160 uwe5622.log
+            exit 1
+          }
+          tail -60 uwe5622.log
 
       - name: Periksa hasil
         working-directory: sdk
