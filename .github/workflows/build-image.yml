@@ -1,0 +1,192 @@
+name: Build test image (OpenWrt 25.12.5)
+
+on:
+  push:
+    branches:
+      - dev/owrt-25.12-uwe5622-current
+    paths:
+      - 'package/**'
+      - 'target/**'
+      - '.github/workflows/build-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENWRT_TAG: v25.12.5
+  FOOTSTRAP_TAG: v0.14.13
+  FOOTSTRAP_VERSION: 0.14.13
+  TARGET: sunxi
+  SUBTARGET: cortexa53
+  PROFILE: xunlong_orangepi-zero3
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: overlay
+
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /usr/local/.ghcup /usr/share/swift \
+            /usr/local/lib/node_modules "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          sudo docker image prune -af 2>/dev/null || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd \
+            ccache ecj fastjar java-propose-classpath libelf-dev \
+            python3-distutils-extra qemu-utils subversion
+
+      - name: Clone OpenWrt
+        run: |
+          git clone --depth 1 --branch "$OPENWRT_TAG" https://github.com/openwrt/openwrt.git
+          cd openwrt
+          git log -1 --oneline
+
+      - name: Apply Zero 3 WLAN overlay
+        working-directory: openwrt
+        run: |
+          cp -a ../overlay/package/kernel/uwe5622 package/kernel/
+          cp -a ../overlay/package/firmware/uwe5622-firmware package/firmware/
+          chmod +x package/kernel/uwe5622/files/sprdwl-delay
+
+          cp ../overlay/target/linux/sunxi/patches-6.12/*.patch \
+             target/linux/sunxi/patches-6.12/
+          patch -p1 < ../overlay/target/linux/sunxi/image/cortexa53-device-packages.patch
+
+          echo "UWE5622 patches:"
+          ls -1 package/kernel/uwe5622/patches/
+          grep -n "kmod-uwe5622" target/linux/sunxi/image/cortexa53.mk
+
+      - name: Add Footstrap
+        working-directory: openwrt
+        run: |
+          git clone --depth 1 --branch "$FOOTSTRAP_TAG" \
+            https://github.com/VizzleTF/luci-theme-footstrap.git /tmp/footstrap
+          cp -a /tmp/footstrap/luci-theme-footstrap package/luci-theme-footstrap
+          rm -rf package/luci-theme-footstrap/.git
+          test -f package/luci-theme-footstrap/Makefile
+          test -f package/luci-theme-footstrap/root/etc/uci-defaults/30_luci-theme-footstrap
+          echo "Footstrap $FOOTSTRAP_TAG staged"
+
+      - name: Update feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure Orange Pi Zero 3 test image
+        working-directory: openwrt
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_sunxi=y
+          CONFIG_TARGET_sunxi_cortexa53=y
+          CONFIG_TARGET_sunxi_cortexa53_DEVICE_xunlong_orangepi-zero3=y
+
+          CONFIG_TARGET_ROOTFS_PARTSIZE=512
+
+          CONFIG_PACKAGE_kmod-uwe5622=y
+          CONFIG_PACKAGE_uwe5622-firmware=y
+          CONFIG_PACKAGE_wireless-regdb=y
+          CONFIG_PACKAGE_iw=y
+          CONFIG_PACKAGE_iwinfo=y
+          CONFIG_PACKAGE_wpad-basic-mbedtls=y
+
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-ssl=y
+          CONFIG_PACKAGE_luci-theme-footstrap=y
+          CONFIG_PACKAGE_luci-theme-bootstrap=y
+
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+          CONFIG_PACKAGE_usbutils=y
+
+          CONFIG_PACKAGE_iperf3=y
+          CONFIG_PACKAGE_ethtool=y
+          CONFIG_PACKAGE_tcpdump-mini=y
+          CONFIG_PACKAGE_htop=y
+          EOF
+
+          make defconfig
+
+          echo "Selected test packages:"
+          grep -E '^CONFIG_PACKAGE_(kmod-uwe5622|uwe5622-firmware|luci|luci-ssl|luci-theme-footstrap|luci-theme-bootstrap|kmod-usb-net|kmod-usb-net-rndis|kmod-usb-net-cdc-ether|kmod-usb-net-cdc-ncm|usbutils|iperf3|iw|iwinfo|wireless-regdb)=y' .config
+
+      - name: Download sources
+        working-directory: openwrt
+        run: make download -j8 V=s
+
+      - name: Build image
+        working-directory: openwrt
+        run: |
+          make -j"$(nproc)" V=s > build.log 2>&1 || {
+            echo "=== parallel build failed ==="
+            tail -120 build.log
+            echo "=== serial retry for readable error ==="
+            make -j1 V=s 2>&1 | tail -240
+            exit 1
+          }
+          tail -60 build.log
+
+      - name: Validate image
+        working-directory: openwrt
+        run: |
+          OUT=bin/targets/$TARGET/$SUBTARGET
+          echo "== images =="
+          ls -lh "$OUT"/*.img.gz
+
+          echo "== required packages =="
+          MANIFEST=$(find "$OUT" -maxdepth 1 -name '*orangepi-zero3*.manifest' | head -1)
+          test -n "$MANIFEST"
+          for p in \
+            kmod-uwe5622 uwe5622-firmware \
+            luci luci-ssl luci-theme-footstrap luci-theme-bootstrap \
+            kmod-usb-net-rndis kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm \
+            usbutils iw iwinfo wireless-regdb iperf3; do
+            if grep -q "^$p " "$MANIFEST"; then
+              printf '  OK      %s\n' "$p"
+            else
+              printf '  MISSING %s\n' "$p"
+              exit 1
+            fi
+          done
+
+          echo "== driver symbols =="
+          KO=$(find build_dir -name sprdwl_ng.ko | head -1)
+          test -n "$KO"
+          for sym in sprdwl_cfg80211_dump_station sprdwl_add_assoc_sta \
+                     sprdwl_cfg80211_get_channel disable_powersave; do
+            strings "$KO" | grep -q "$sym" && printf '  OK      %s\n' "$sym" || exit 1
+          done
+
+          echo "== delayed load policy =="
+          grep -q 'modprobe sprdwl_ng disable_powersave=1' \
+            package/kernel/uwe5622/files/sprdwl-delay
+
+          echo "== Zero 3 DTB mmc1 =="
+          DTB=$(find build_dir -name 'sun50i-h618-orangepi-zero3.dtb' | head -1)
+          test -n "$DTB"
+          dtc -I dtb -O dts "$DTB" 2>/dev/null | \
+            grep -A18 'mmc@4021000' | grep -E 'status|pwrseq|vmmc-supply'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz3-openwrt-25.12.5-uwe5622-test
+          retention-days: 30
+          path: |
+            openwrt/bin/targets/sunxi/cortexa53/*orangepi-zero3*.img.gz
+            openwrt/bin/targets/sunxi/cortexa53/*orangepi-zero3*.manifest
+            openwrt/bin/targets/sunxi/cortexa53/sha256sums
