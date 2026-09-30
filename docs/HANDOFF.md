@@ -1,4 +1,4 @@
-# Orange Pi Zero 3 WLAN Backport — HANDOFF
+# Orange Pi Zero 3 WLAN / UWE5622 — HANDOFF
 
 Date: 2026-09-30  
 Repository: `Medvedolog/opiz3-wlan-backport`  
@@ -6,392 +6,385 @@ Working branch: `dev/owrt-25.12-uwe5622-current`
 
 ## 1. Goal
 
-Make the onboard AW859A / UNISOC UWE5622 Wi-Fi on Orange Pi Zero 3 behave like a normal OpenWrt radio on OpenWrt 25.12.x / Linux 6.12.
+Get the onboard AW859A / UNISOC UWE5622 Wi-Fi of Orange Pi Zero 3 working as a normal OpenWrt radio on OpenWrt 25.12/Linux 6.12.
 
-Primary release target:
+Target is not just successful compilation.
 
-```
-OpenWrt 25.12.5
-sunxi/cortexa53
-xunlong_orangepi-zero3
-```
+Required end result:
 
-The goal is stable AP/STA operation, not merely a loadable vendor driver.
+- stable AP/STA;
+- 2.4 and 5 GHz;
+- cfg80211/nl80211 integration;
+- hostapd/OpenWrt control;
+- client MAC enumeration;
+- LuCI associated-client visibility;
+- correct channel reporting;
+- practical 5 GHz throughput;
+- long-run stability.
 
 ## 2. Current branch/head
 
-Current head at this handoff:
-
 ```
+branch: dev/owrt-25.12-uwe5622-current
+head at 2026-09-30 snapshot:
 618c9ffc5c9878f6e2040f81a0ae3420caea1391
-ci: drop nonexistent ip-neighbor package
 ```
 
-Do not assume a later run/commit result without checking GitHub.
+Do not work on main unless explicitly instructed.
 
-## 3. Pinned source
+## 3. Baseline
 
-Driver:
+```
+OpenWrt 25.12.x
+CI image release: 25.12.5
+target: sunxi/cortexa53
+profile: xunlong_orangepi-zero3
+kernel: 6.12
+```
+
+Driver source pinned to:
 
 ```
 armbian/uwe5622
 cc2835a3f935d5297e03cdce464c1785381a7b4d
 ```
 
-Driver source hash:
+Source hash is pinned in the package Makefile.
 
-```
-8ca548db6885ccdbaebe4f1f0089dda485377b36ea7ce20fb3e70bfdcfd935d5
-```
+## 4. Current repository structure
 
-Firmware source commit:
-
-```
-612bc7cc0e3539ea89c659049b7d8432e2de8ed7
-```
-
-Firmware files:
-
-```
-wcnmodem.bin
-wifi_2355b001_1ant.ini
-```
-
-## 4. Main package structure
+Important files:
 
 ```
 package/kernel/uwe5622/
 package/firmware/uwe5622-firmware/
-```
-
-Kernel modules:
-
-```
-uwe5622_bsp_sdio.ko
-sprdwl_ng.ko
-```
-
-Relevant docs:
-
-```
-docs/TECHNICAL-SPEC.md
+target/linux/sunxi/patches-6.12/
+target/linux/sunxi/image/
+scripts/collect-debug.sh
+.github/workflows/build-packages.yml
+.github/workflows/build-image.yml
 docs/PORTING-NOTES.md
+docs/TECHNICAL-SPEC.md
 docs/HANDOFF.md
 ```
 
-## 5. Current patches
+## 5. Current driver adaptations
+
+Current patch set includes:
 
 ```
-010-openwrt-cfg80211-backport-api.patch
-020-enable-external-kbuild-config-symbols.patch
-030-fix-cfg80211-netdev-locking.patch
-060-unisocwifi-implement-dump-station.patch
-070-unisocwifi-fix-remaining-vlas.patch
-080-cfg80211-set-wiphy-params-backport-radio-idx.patch
-090-unisocwifi-implement-get-channel-and-station-details.patch
+010 cfg80211 backport API
+020 external Kbuild symbols
+030 cfg80211/netdev locking
+060 dump_station / client enumeration
+070 VLA cleanup
+080 set_wiphy_params backport API
+090 get_channel and station details
 ```
 
-Important: old reconnect/roam, power-save and other patches whose logic already exists upstream in the pinned Armbian source were deliberately removed. Do not re-add them without proving a regression.
+OpenWrt cfg80211 comes from backports, so callback ABI cannot be selected only by Linux kernel version.
 
-## 6. OpenWrt cfg80211 issue
-
-Do not use Linux kernel version alone to choose vendor cfg80211 callback prototypes.
-
-OpenWrt uses mac80211/cfg80211 backports.
-
-Current build explicitly uses:
+The package defines:
 
 ```
--DOPENWRT_CFG80211_BACKPORT
+OPENWRT_CFG80211_BACKPORT
 ```
 
-and backport headers from OpenWrt's staged mac80211 package.
+for compatibility logic.
 
-This affects at least:
+## 6. Station/client support
 
-- beacon callback API;
-- `set_wiphy_params`;
-- channel callbacks.
+This is a major project requirement.
 
-## 7. Boot-hang safety rule
+Current code has:
 
-This is critical.
+- associated-station tracking;
+- `dump_station`;
+- client MAC enumeration;
+- additional station fields;
+- channel reporting.
 
-Early automatic module loading was observed to risk wedging boot during SDIO probe.
-
-Therefore the package has no normal KernelPackage AutoLoad.
-
-Instead:
-
-```
-/etc/init.d/sprdwl-delay
-```
-
-loads Wi-Fi after the rest of boot/network has progressed.
-
-Current module policy includes:
-
-```
-modprobe sprdwl_ng disable_powersave=1
-```
-
-Never "simplify" this back to early autoload without real hardware evidence.
-
-If Wi-Fi fails, Ethernet must remain usable.
-
-## 8. Device tree
-
-Patch:
-
-```
-target/linux/sunxi/patches-6.12/900-arm64-dts-h616-add-wifi-orangepi-zero2-zero3.patch
-```
-
-Adds/enables:
-
-- 3.3 V Wi-Fi rail;
-- 1.8 V IO rail;
-- 32 kHz clock;
-- PG18 reset;
-- mmc-pwrseq;
-- mmc1 SDIO;
-- 4-bit bus;
-- 1.8 V DDR;
-- non-removable device.
-
-Full-image CI decompiles the built DTB and checks the resulting mmc1 node.
-
-## 9. Station handling
-
-Patch 060 implements associated station enumeration so:
+Required test:
 
 ```
 iw dev <ap> station dump
 ```
 
-can list associated MAC addresses and LuCI/iwinfo can show clients.
+must list associated MAC addresses.
 
-Firmware limitation remains:
+LuCI/iwinfo must also show clients.
 
-`WIFI_CMD_GET_STATION` has no peer-MAC argument.
+Important limitation:
 
-Therefore per-client RSSI/rate may not be authoritative.
+Firmware `WIFI_CMD_GET_STATION` has no peer-MAC argument.
 
-Release policy:
+Therefore current per-client RSSI/rate cannot be considered authoritative.
 
-- client enumeration: required;
-- perfect per-client RSSI/rate: not required for first usable baseline.
+Do not fake or overstate per-client statistics.
 
-## 10. Channel reporting
+Client enumeration is a release requirement. Perfect per-client signal/rate is not.
 
-Patch 090 and related compatibility work are intended to make OpenWrt channel reporting useful.
+## 7. 5 GHz goal
 
-Validate on hardware with:
+Driver exposes 5 GHz if firmware reports the capability and carries HT/VHT data.
 
-```
-iw dev <ifname> info
-iw phy
-```
-
-Do not infer VHT80 only from a visible 5 GHz SSID.
-
-## 11. Power saving
-
-Current default:
+Initial hardware test channels:
 
 ```
-disable_powersave=1
+36
+40
+44
+48
 ```
 
-Keep it this way for stability testing.
+Do not infer VHT80 simply from a 5 GHz SSID.
 
-Power saving can be revisited only after multicast/broadcast, reconnect and long-run stability are proven.
+Verify:
 
-## 12. Build workflows
+- `iw dev ... info`;
+- actual channel/frequency;
+- association;
+- local iperf3 throughput;
+- sustained operation.
 
-### Fast package build
+Pragmatic first throughput goal is at least about 150 Mbit/s on 5 GHz if client/RF conditions permit.
+
+Stability is more important than peak throughput.
+
+## 8. Power saving
+
+Current policy:
+
+```
+sprdwl_ng disable_powersave=1
+```
+
+This is intentional.
+
+Reason: avoid multicast/broadcast/ARP/ND/mDNS instability while making the AP usable.
+
+Do not re-enable by default until hardware testing proves it stable.
+
+## 9. Delayed module loading
+
+The kmod intentionally does NOT AutoLoad at the normal early boot stage.
+
+Current loader:
+
+```
+/etc/init.d/sprdwl-delay
+```
+
+Reason:
+
+Early SDIO probe previously had a failure mode where the board could hang before network startup, leaving the gateway unreachable.
+
+The current safety invariant is:
+
+> Wi-Fi failure may disable Wi-Fi, but must not take down wired manageability.
+
+Do not remove delayed loading until repeated cold-boot tests prove early probe safe.
+
+## 10. Device-tree requirements
+
+The generated Zero 3 DTB must have a valid MMC1/WLAN node with:
+
+```
+status = "okay"
+vmmc-supply
+vqmmc-supply
+mmc-pwrseq
+bus-width
+non-removable
+mmc-ddr-1_8v
+```
+
+The full-image CI decompiles the generated DTB and checks the actual node.
+
+## 11. Debug bundle
+
+Use:
+
+```
+scripts/collect-debug.sh <router-ip>
+```
+
+The script collects:
+
+- OpenWrt/board info;
+- dmesg/logread;
+- modules;
+- SDIO;
+- DT state;
+- `iw`;
+- station dump;
+- iwinfo;
+- networking/routes;
+- UCI;
+- firmware/probe information.
+
+Wi-Fi credentials are redacted.
+
+Always collect a bundle after first hardware boot before making large driver changes.
+
+## 12. CI
+
+### Fast package CI
 
 ```
 .github/workflows/build-packages.yml
 ```
 
-Uses official OpenWrt 25.12.5 SDK and pulls the matching mac80211 source tree.
+Builds UWE5622 kmod + firmware against OpenWrt 25.12.5 SDK.
 
-Purpose: faster compile iteration for UWE5622/firmware.
+It imports matching OpenWrt mac80211 sources because cfg80211 backport headers are required.
 
-### Full image
+Validates important symbols inside `sprdwl_ng.ko`.
+
+### Full image CI
 
 ```
 .github/workflows/build-image.yml
 ```
 
-Clones official OpenWrt `v25.12.5`, applies overlay, stages Footstrap, builds a complete Orange Pi Zero 3 image and validates artifacts.
+Builds a complete Orange Pi Zero 3 microSD image.
 
-Full-image build is the stronger signal.
+Includes:
 
-## 13. Current CI state at handoff
+- WLAN driver/firmware;
+- LuCI;
+- Footstrap;
+- iw/iwinfo;
+- iperf3;
+- modem stack;
+- common USB Ethernet drivers;
+- diagnostics.
 
-Full image workflow:
+It validates:
+
+- final image exists;
+- required packages are in manifest;
+- driver symbols exist;
+- delayed-load policy remains;
+- generated DTB has required MMC1 properties.
+
+## 13. Current full-image status at handoff
+
+Latest observed run:
 
 ```
-Build test image (OpenWrt 25.12.5) #7
+workflow: Build test image (OpenWrt 25.12.5)
+run #7
 run id: 36739712280
-head: 618c9ffc
-state at handoff: IN PROGRESS
+head: 618c9ffc5c9878f6e2040f81a0ae3420caea1391
 ```
 
-Already passed:
-
-- checkout;
-- dependency installation;
-- OpenWrt clone;
-- WLAN overlay application;
-- Footstrap staging;
-- feed update;
-- package/image config preflight;
-- source download.
-
-At handoff it was running the full image compile step.
-
-Do not report it as successful until the run completes.
-
-Previous full-image run #6 failed only at image configuration preflight because the requested package `ip-neighbor` does not exist in the selected OpenWrt feed.
-
-That was fixed by:
+At the time of handoff it was still:
 
 ```
-618c9ffc ci: drop nonexistent ip-neighbor package
+Build image: in progress
+Validate image: pending
+Upload artifact: pending
 ```
 
-## 14. Image additions made today
+No artifact had yet been uploaded.
 
-The 512 MiB rootfs development image now includes:
+Do not claim success/failure without checking current GitHub status first.
 
-- LuCI + SSL;
-- Bootstrap + Footstrap;
-- UWE5622 driver/firmware;
-- wireless-regdb/iw/iwinfo/wpad;
-- ModemManager;
-- QMI/MBIM/NCM tooling;
-- USB serial modem drivers;
-- USB WWAN network drivers;
-- common USB Ethernet adapters;
-- diagnostics tools;
-- iperf3/htop.
+## 14. Test image package set
 
-The image is intentionally a broad development gateway/testbed, not a minimal production image.
+The development image intentionally contains a broad test stack.
 
-## 15. Modem-ready package stack
-
-The current image workflow requests:
+WLAN:
 
 ```
-modemmanager
-uqmi
-umbim
-usb-modeswitch
-comgt
-comgt-ncm
-luci-proto-qmi
-luci-proto-mbim
-luci-proto-ncm
-luci-proto-modemmanager
+kmod-uwe5622
+uwe5622-firmware
+wireless-regdb
+iw
+iwinfo
+wpad-basic-mbedtls
+luci
+luci-ssl
+luci-theme-footstrap
+luci-theme-bootstrap
+iperf3
+htop
 ```
 
-plus USB serial/net drivers and diagnostics.
+Cellular/modem stack includes MM/QMI/MBIM/NCM/serial/tethering support.
 
-This is intended to support future `medvemodem` testing on the same OPi Zero 3 image.
+USB Ethernet includes common Realtek, ASIX, SMSC, LAN78xx, DM9601 and SR9700 families where packages exist.
 
-Do not couple WLAN correctness to MedveModem. They are separate projects.
+This is a development image, not a minimal production image.
 
-## 16. Hardware validation sequence
+## 15. Hardware acceptance plan
 
-Once a full image build is green:
+After obtaining a microSD image:
 
-1. flash image;
-2. verify Ethernet/SSH/LuCI before Wi-Fi load;
-3. capture `scripts/collect-debug.sh` output;
-4. confirm SDIO device exists;
-5. confirm `uwe5622_bsp_sdio` loads;
-6. confirm firmware loads;
-7. confirm `sprdwl_ng` loads;
-8. confirm phy appears;
-9. confirm wlan interface appears;
-10. test 2.4 GHz AP;
-11. test 5 GHz channel 36/40/44/48;
-12. verify VHT80;
-13. verify `station dump`;
-14. verify LuCI client list;
-15. test STA mode;
-16. test repeated `wifi reload`;
-17. test reconnect/cold boot;
-18. test ARP/mDNS/IPv6 ND;
-19. run sustained wired<->Wi-Fi iperf3;
+1. boot with Ethernet connected;
+2. confirm board remains reachable;
+3. collect debug bundle;
+4. confirm SDIO device;
+5. confirm transport module;
+6. confirm `sprdwl_ng`;
+7. confirm firmware;
+8. confirm wlan phy/interface;
+9. configure 2.4 GHz AP;
+10. connect client;
+11. verify station dump;
+12. configure 5 GHz channel 36/40/44/48;
+13. connect at least two clients;
+14. verify LuCI/iwinfo client list;
+15. run Ethernet-to-WLAN iperf3;
+16. repeat `wifi reload`;
+17. repeat client reconnect;
+18. test DHCP/ARP/mDNS/IPv6 ND/multicast;
+19. reboot repeatedly;
 20. run 12+ hour stability test.
 
-## 17. Debug collector
+## 16. Important non-goals / do not regress
 
-Run from another machine:
+Do not:
+
+- move fixes into `build_dir`;
+- depend on vendor custom userspace for normal AP operation;
+- reintroduce early module AutoLoad without proof;
+- re-enable power save by default;
+- report fake per-client RSSI/rate;
+- call visible SSID proof of a working 5 GHz/VHT path;
+- call successful compile proof of hardware support;
+- merge/tag/release without explicit instruction.
+
+## 17. Immediate next action
+
+First check current status of run #7 or newer full-image run.
+
+If successful:
+
+- download/flash the `.img.gz`;
+- boot on real OPi Zero 3;
+- collect debug bundle;
+- execute the hardware acceptance plan.
+
+If failed:
+
+- diagnose the first real build failure;
+- preserve currently working driver patches;
+- do not rewrite the port wholesale unless evidence requires it.
+
+## 18. Success definition
+
+The first usable milestone is:
 
 ```
-sh scripts/collect-debug.sh <router-ip>
+OpenWrt 25.12 boots from microSD
+-> wired management remains safe
+-> UWE5622 loads
+-> 5 GHz AP works
+-> associated clients are visible in iw/LuCI
+-> sustained local throughput >= ~150 Mbit/s where conditions allow
+-> repeated reload/reconnect does not destabilize the board
 ```
 
-It collects board, kernel, SDIO, DT, module, Wi-Fi, network and configuration evidence while redacting Wi-Fi secrets.
-
-Use it before making speculative driver changes.
-
-## 18. First release criteria
-
-Do not block first usable WLAN baseline on perfect vendor metrics.
-
-Required:
-
-- safe boot;
-- phy/wlan present;
-- AP 2.4 GHz;
-- AP 5 GHz non-DFS;
-- STA operation;
-- associated-client enumeration;
-- channel reporting;
-- reload/reconnect stability;
-- multicast/basic LAN health;
-- sustained traffic;
-- 12+ hour stability.
-
-Not required initially:
-
-- perfect per-client RSSI/rate;
-- DFS;
-- Bluetooth;
-- maximum theoretical speed;
-- optimized power saving.
-
-## 19. Development discipline
-
-- stay on dev/topic branches;
-- no merge to main without explicit request;
-- no tag/release without explicit request;
-- no source fixes directly in `build_dir`;
-- keep driver/firmware pinned;
-- preserve license/provenance;
-- keep Ethernet-safe delayed loading;
-- validate built DTB and symbols;
-- never claim a CI build passed without checking it;
-- prioritize stable AP/client enumeration over cosmetic metrics.
-
-## 20. Next action
-
-First check whether run #7 finished.
-
-If green:
-
-- record the successful commit/run in this handoff;
-- download/flash the image;
-- begin hardware validation using the sequence above.
-
-If it failed:
-
-- inspect the first real build/validation error;
-- fix only that concrete failure in the dev branch;
-- do not redesign unrelated WLAN logic.
+Final confidence requires long-run testing, not a one-shot association.
