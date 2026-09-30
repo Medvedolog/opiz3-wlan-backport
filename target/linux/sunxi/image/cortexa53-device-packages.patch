@@ -1,0 +1,17 @@
+From: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+Subject: [PATCH] sunxi: pull in the UWE5622 driver on Orange Pi Zero 3
+
+The board carries an AW859A (Unisoc UWE5622) SDIO module. With the driver
+and its firmware selected by default the stock image comes up with working
+Wi-Fi instead of no wireless interface at all.
+
+--- a/target/linux/sunxi/image/cortexa53.mk
++++ b/target/linux/sunxi/image/cortexa53.mk
+@@ -136,6 +136,7 @@
+ define Device/xunlong_orangepi-zero3
+   DEVICE_VENDOR := Xunlong
+   DEVICE_MODEL := Orange Pi Zero 3
++  DEVICE_PACKAGES := kmod-uwe5622 uwe5622-firmware wpad-basic-mbedtls
+   $(Device/sun50i-h618)
+ endef
+ TARGET_DEVICES += xunlong_orangepi-zero3
