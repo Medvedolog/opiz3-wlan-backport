@@ -80,6 +80,21 @@ jobs:
           EOF
           make defconfig
 
+      - name: Validate UWE5622 patches
+        working-directory: sdk
+        run: |
+          set -o pipefail
+          make package/kernel/uwe5622/prepare V=s > uwe5622-prepare.log 2>&1 || {
+            echo "=== UWE5622 patch/prepare failure ==="
+            tail -160 uwe5622-prepare.log
+            exit 1
+          }
+          SRC=$(find build_dir -path '*/uwe5622-*/unisocwifi/cfg80211.c' | head -1)
+          test -n "$SRC"
+          grep -q 'AP WIFI_CMD_SET_CHANNEL' "$SRC"
+          grep -q 'AP WIFI_CMD_START_AP' "$SRC"
+          echo "UWE5622 patches apply cleanly"
+
       - name: Build
         working-directory: sdk
         run: |
