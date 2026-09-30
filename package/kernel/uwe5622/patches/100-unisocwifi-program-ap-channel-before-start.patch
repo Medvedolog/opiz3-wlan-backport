@@ -1,0 +1,83 @@
+From: Medvedolog <noreply@github.com>
+Subject: [PATCH] unisocwifi: program AP channel before starting beaconing
+
+OpenWrt/hostapd supplies the selected AP channel through
+cfg80211_ap_settings.chandef.  The vendor driver kept that chandef only for
+reporting through get_channel(), but did not send WIFI_CMD_SET_CHANNEL to the
+firmware on the normal cfg80211 AP start path.
+
+That can make userspace report AP-ENABLED on the requested channel while the
+firmware has never actually been tuned there, leaving no beacon on air.
+
+Use the final primary channel (cfg80211 chandef, with the existing SCC/debug
+override semantics retained), program it through sprdwl_set_channel() before
+WIFI_CMD_START_AP, and log both firmware command results for hardware bring-up.
+
+---
+ unisocwifi/cfg80211.c | 29 ++++++++++++++++++++++++++++-
+ 1 file changed, 28 insertions(+), 1 deletion(-)
+
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -957,6 +957,7 @@ static int sprdwl_cfg80211_start_ap(struc
+ 	u8 *data = NULL;
+ 	int ret;
+ 	u16 chn = 0;
++	u16 requested_chn = 0;
+ 	u8 *head, *tail;
+ 	int head_len, tail_len;
+ 
+@@ -985,12 +986,35 @@ static int sprdwl_cfg80211_start_ap(struc
+ #endif
+ 	vif->ssid_len = settings->ssid_len;
+ 
++	if (settings->chandef.chan)
++		requested_chn = ieee80211_frequency_to_channel(
++					settings->chandef.chan->center_freq);
++
++	/*
++	 * Normal cfg80211 AP setup carries the primary channel in chandef.
++	 * The vendor driver historically only consumed a channel through its
++	 * old mesh callback / optional debug override, so explicitly program
++	 * the firmware before START_AP.
++	 */
++	chn = requested_chn;
+ #ifdef STA_SOFTAP_SCC_MODE
+-	chn = intf->sta_home_channel;
++	if (intf->sta_home_channel)
++		chn = intf->sta_home_channel;
+ #endif
+ 	if (intf->ini_cfg.softap_channel > 0)
+ 		chn = intf->ini_cfg.softap_channel;
+ 
++	wl_ndev_log(L_INFO, ndev,
++		    "AP chandef freq=%d requested_ch=%u final_ch=%u width=%d\n",
++		    settings->chandef.chan ?
++			    settings->chandef.chan->center_freq : 0,
++		    requested_chn, chn, settings->chandef.width);
++
++	if (is_valid_channel(wiphy, chn)) {
++		ret = sprdwl_set_channel(vif->priv, vif->ctx_id, chn);
++		wl_ndev_log(L_INFO, ndev,
++			    "AP WIFI_CMD_SET_CHANNEL channel=%u ret=%d\n",
++			    chn, ret);
++		if (ret)
++			return ret;
++	} else {
++		wl_ndev_log(L_WARN, ndev,
++			    "AP has no valid primary channel before START_AP\n");
++	}
++
+ 	if (NULL == beacon->head || NULL == beacon->tail) {
+ 		wl_ndev_log(L_ERR, ndev, "%s Beacon info is NULL\n", __func__);
+ 		return -EINVAL;
+@@ -1079,6 +1103,9 @@ static int sprdwl_cfg80211_start_ap(struc
+ 
+ 	ret = sprdwl_start_ap(vif->priv, vif->ctx_id, (unsigned char *)mgmt,
+ 			      mgmt_len);
++	wl_ndev_log(L_INFO, ndev,
++		    "AP WIFI_CMD_START_AP channel=%u beacon_len=%u ret=%d\n",
++		    chn, mgmt_len, ret);
+ 	kfree(mgmt);
+ 
+ #ifdef DFS_MASTER
