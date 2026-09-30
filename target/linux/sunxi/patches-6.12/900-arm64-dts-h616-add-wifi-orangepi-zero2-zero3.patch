@@ -1,0 +1,67 @@
+From: Gunjan Gupta <viraniac@gmail.com>
+Subject: [PATCH] arm64: dts: h616: add wifi support for orange pi zero 2 and zero3
+
+The Orange Pi Zero 2 and Zero 3 carry an AW859A module (Unisoc UWE5622)
+wired to mmc1 over SDIO. Mainline describes neither the always-on
+regulators that feed it nor the reset line, so the controller stays
+disabled and the chip is never probed.
+
+Add the 3.3V and 1.8V rails, the mmc-pwrseq-simple node driving the PG18
+reset with the RTC 32k clock, and enable mmc1 as a non-removable 4-bit
+SDIO bus.
+
+Origin: Armbian
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h616-orangepi-zero.dtsi
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h616-orangepi-zero.dtsi
+@@ -57,6 +57,34 @@
+ 		enable-active-high;
+ 		gpio = <&pio 2 16 GPIO_ACTIVE_HIGH>; /* PC16 */
+ 	};
++
++	reg_vcc33_wifi: regulator-vcc33-wifi {
++		/* Always on 3.3V regulator for WiFi and BT */
++		compatible = "regulator-fixed";
++		regulator-name = "vcc33-wifi";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++		vin-supply = <&reg_vcc5v>;
++	};
++
++	reg_vcc_wifi_io: regulator-vcc-wifi-io {
++		/* Always on 1.8V/300mA regulator for WiFi and BT IO */
++		compatible = "regulator-fixed";
++		regulator-name = "vcc-wifi-io";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++		vin-supply = <&reg_vcc33_wifi>;
++	};
++
++	wifi_pwrseq: wifi-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		clocks = <&rtc 1>;
++		clock-names = "osc32k-out";
++		reset-gpios = <&pio 6 18 GPIO_ACTIVE_LOW>; /* PG18 */
++		post-power-on-delay-ms = <200>;
++	};
+ };
+ 
+ &ehci1 {
+@@ -85,6 +113,16 @@
+ 	status = "okay";
+ };
+ 
++&mmc1 {
++	vmmc-supply = <&reg_vcc33_wifi>;
++	vqmmc-supply = <&reg_vcc_wifi_io>;
++	mmc-pwrseq = <&wifi_pwrseq>;
++	bus-width = <4>;
++	non-removable;
++	mmc-ddr-1_8v;
++	status = "okay";
++};
++
+ &ohci1 {
+ 	status = "okay";
+ };
