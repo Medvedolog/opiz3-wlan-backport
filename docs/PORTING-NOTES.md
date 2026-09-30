@@ -55,16 +55,18 @@ identified.
 The station event provides MAC + association IE. The STA-LUT event additionally
 provides LUT index and HT/VHT flags, but no RSSI/rate.
 
-TODO: keep per-client association timestamps in the driver's station table
-instead of using one VIF-wide timestamp.
+Per-client RSSI/rate accuracy is explicitly not a release blocker. The first
+goal is stable AP operation plus reliable associated-client enumeration.
 
 ## Power saving
 
 The current Armbian driver has a `disable_powersave=1` module parameter.
-Firmware power-down can drop broadcast/multicast traffic; router/AP testing
-must include ARP, IPv6 ND and mDNS. If confirmed on Zero 3, the OpenWrt default
-should load `sprdwl_ng disable_powersave=1`, with the power-cost tradeoff
-documented.
+For this OpenWrt AP port, firmware power saving is disabled by default:
+`sprdwl_ng disable_powersave=1`.
+
+Stability is the priority. The extra power draw is accepted to avoid the known
+risk of broadcast/multicast loss affecting ARP, IPv6 ND and mDNS. Hardware
+testing still verifies these protocols explicitly.
 
 ## Hardware acceptance
 
@@ -74,8 +76,8 @@ Initial non-DFS test target:
 - VHT80
 - WPA2-PSK
 - two or more associated clients
-- `iw dev <ap> station dump` lists every client
-- LuCI/iwinfo client list agrees with cfg80211
+- `iw dev <ap> station dump` lists associated client MAC addresses
+- LuCI/iwinfo shows the associated clients; per-client RSSI/rate is best-effort
 - repeated `wifi reload`, client reconnect, and cold boot
 - sustained iperf3 from wired Ethernet to Wi-Fi
 - multicast/mDNS/IPv6 ND sanity checks
