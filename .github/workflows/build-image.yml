@@ -156,7 +156,6 @@ jobs:
           CONFIG_PACKAGE_ethtool=y
           CONFIG_PACKAGE_ip-full=y
           CONFIG_PACKAGE_ip-bridge=y
-          CONFIG_PACKAGE_ip-neighbor=y
           CONFIG_PACKAGE_tcpdump=y
           CONFIG_PACKAGE_lsof=y
           CONFIG_PACKAGE_strace=y
@@ -179,7 +178,7 @@ jobs:
             kmod-usb-net-cdc-subset kmod-mii \
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
             usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty \
-            ethtool ip-full ip-bridge ip-neighbor tcpdump lsof strace ppp chat; do
+            ethtool ip-full ip-bridge tcpdump lsof strace ppp chat; do
             if grep -q "^CONFIG_PACKAGE_${p}=y$" .config; then
               printf '  OK      %s\n' "$p"
             else
@@ -231,7 +230,7 @@ jobs:
             kmod-usb-net-dm9601-ether kmod-usb-net-sr9700 \
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
             usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty \
-            ethtool ip-full ip-bridge ip-neighbor tcpdump lsof strace ppp chat \
+            ethtool ip-full ip-bridge tcpdump lsof strace ppp chat \
             iw iwinfo wireless-regdb iperf3; do
             if grep -q "^$p " "$MANIFEST"; then
               printf '  OK      %s\n' "$p"
