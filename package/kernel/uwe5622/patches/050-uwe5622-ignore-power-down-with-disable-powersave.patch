@@ -1,0 +1,43 @@
+diff --git a/unisocwifi/cmdevt.c b/unisocwifi/cmdevt.c
+index 3493c85..3bc1b3a 100644
+--- a/unisocwifi/cmdevt.c
++++ b/unisocwifi/cmdevt.c
+@@ -3257,6 +3257,11 @@ static void sprdwl_event_fw_power_down(struct sprdwl_vif *vif, u8 *data, u16 len
+ {
+ 	struct sprdwl_work *misc_work;
+ 
++	/* When power down is disabled in kernel option, silently ignore
++	 * the firmware's sleep request like we don't know the command. */
++	if (disable_powersave)
++		return;
++
+ 	misc_work = sprdwl_alloc_work(0);
+ 	if (!misc_work) {
+ 		wl_err("%s out of memory\n", __func__);
+diff --git a/unisocwifi/cmdevt.h b/unisocwifi/cmdevt.h
+index 9516142..7eff21f 100644
+--- a/unisocwifi/cmdevt.h
++++ b/unisocwifi/cmdevt.h
+@@ -75,6 +75,7 @@
+ #define SPRDWL_11V_ALL_FEATURE          0xFFFF
+ 
+ extern unsigned int wfa_cap;
++extern unsigned int disable_powersave;
+ enum SPRDWL_CMD_LIST {
+ 	WIFI_CMD_MIN = 0,
+ 	WIFI_CMD_ERR = WIFI_CMD_MIN,
+diff --git a/unisocwifi/main.c b/unisocwifi/main.c
+index 98b9b01..d020fd8 100644
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -1658,6 +1658,10 @@ unsigned int wfa_cap;
+ module_param(wfa_cap, uint, 0000);
+ MODULE_PARM_DESC(wfa_cap, "set capability for WFA test");
+ 
++unsigned int disable_powersave;
++module_param(disable_powersave, uint, 0000);
++MODULE_PARM_DESC(disable_powersave, "Disable firmware power save mode (0=default, 1=ignore EVENT_PWR_DOWN)");
++
+ unsigned int tcp_ack_drop_cnt = SPRDWL_TCP_ACK_DROP_CNT;
+ /* Maybe you need S_IRUGO | S_IWUSR for debug */
+ module_param(tcp_ack_drop_cnt, uint, 0000);
