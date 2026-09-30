@@ -267,8 +267,8 @@ jobs:
             in_node {
               print
               line = $0
-              opens = gsub(/\\{/, "{", line)
-              closes = gsub(/\\}/, "}", line)
+              opens = gsub(/{/, "{", line)
+              closes = gsub(/}/, "}", line)
               depth += opens - closes
               if (depth == 0)
                 exit
