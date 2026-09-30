@@ -9,7 +9,7 @@ PKG_RELEASE:=1
 PKG_SOURCE_VERSION:=cc2835a3f935d5297e03cdce464c1785381a7b4d
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/armbian/uwe5622/tar.gz/$(PKG_SOURCE_VERSION)?
-PKG_HASH:=skip # dev only; CI will report the tarball SHA256 before this branch is considered releasable
+PKG_HASH:=8ca548db6885ccdbaebe4f1f0089dda485377b36ea7ce20fb3e70bfdcfd935d5
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_SOURCE_VERSION)
 
 PKG_LICENSE:=GPL-2.0
