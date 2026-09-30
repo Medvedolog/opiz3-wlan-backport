@@ -11,6 +11,10 @@ on:
       - '.github/workflows/build-packages.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RELEASE: 25.12.5
   TARGET: sunxi
@@ -22,6 +26,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Hash pinned UWE5622 source
+        run: |
+          VER=$(sed -n 's/^PKG_SOURCE_VERSION:=//p' package/kernel/uwe5622/Makefile)
+          curl -fsSL "https://codeload.github.com/armbian/uwe5622/tar.gz/$VER" -o /tmp/uwe5622.tar.gz
+          echo "UWE5622_SOURCE_SHA256=$(sha256sum /tmp/uwe5622.tar.gz | awk '{print $1}')"
 
       - name: Pasang dependensi build
         run: |
