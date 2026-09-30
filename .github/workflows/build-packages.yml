@@ -113,7 +113,16 @@ jobs:
             else echo "  HILANG  $sym"; exit 1; fi
           done
 
+          echo
+          echo "== AP channel diagnostics =="
+          for marker in "AP WIFI_CMD_SET_CHANNEL" "AP WIFI_CMD_START_AP"; do
+            if strings "$KO" | grep -q "$marker"; then echo "  OK      $marker"
+            else echo "  HILANG  $marker"; exit 1; fi
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: uwe5622-packages-${{ env.RELEASE }}
-          path: sdk/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/packages/*uwe5622*
+          path: |
+            sdk/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/packages/*uwe5622*
+            sdk/build_dir/**/sprdwl_ng.ko
