@@ -1,0 +1,186 @@
+From: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+Subject: [PATCH] unisocwifi: implement get_channel and fill in station details
+
+With dump_station in place the LuCI wireless page finally lists stations, but
+several fields still read as zero because the driver never reports them:
+
+  Channel: 0 (unknown GHz)
+  signal_avg: 0
+  connected_time: 0
+  authorized/authenticated: false
+
+The information is available. The firmware reports the operating channel in
+conn_info->channel when an association succeeds, and cfg80211 hands the full
+chandef to start_ap(). Neither was ever stored, so .get_channel could not be
+implemented and NL80211_CMD_GET_INTERFACE returned no frequency.
+
+Record the channel on both paths and add .get_channel. Also fill in
+signal_avg, connected_time and the station flags in get_station.
+
+For managed mode the firmware only reports the primary channel number, not
+the bandwidth, so the chandef is created as 20 MHz NO_HT. That makes the
+channel and frequency correct without inventing a width the driver does not
+know. AP mode keeps the chandef cfg80211 supplied, which is complete.
+
+Signed-off-by: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 1599148..7e3c442 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -949,6 +949,9 @@ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
+ 	struct sprdwl_vif *vif = netdev_priv(ndev);
+ 	struct sprdwl_intf *intf = (struct sprdwl_intf *)vif->priv->hw_priv;
+ 	struct cfg80211_beacon_data *beacon = &settings->beacon;
++
++	/* cfg80211 tahu lebar kanal untuk mode AP, jadi simpan chandef aslinya */
++	vif->chandef = settings->chandef;
+ 	struct ieee80211_mgmt *mgmt;
+ 	u16 mgmt_len, index = 0, hidden_index;
+ 	u8 *data = NULL;
+@@ -1141,6 +1144,58 @@ static int sprdwl_cfg80211_change_beacon(struct wiphy *wiphy,
+ }
+ #endif
+ 
++/* Simpan kanal operasi supaya cfg80211 bisa menanyakannya kembali.
++ *
++ * Firmware hanya melaporkan nomor kanal primer lewat conn_info->channel; lebar
++ * kanal tidak diketahui di sini. chandef dibuat 20 MHz NO_HT: kolom
++ * Channel/Frequency jadi benar tanpa mengarang lebar yang tidak kita punya.
++ */
++static void sprdwl_save_sta_channel(struct sprdwl_vif *vif, u8 chan)
++{
++	struct ieee80211_channel *ch;
++	int freq;
++
++	if (!chan || !vif->priv || !vif->priv->wiphy)
++		return;
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)
++	freq = ieee80211_channel_to_frequency(chan,
++					      chan <= CH_MAX_2G_CHANNEL ?
++					      NL80211_BAND_2GHZ : NL80211_BAND_5GHZ);
++#else
++	freq = ieee80211_channel_to_frequency(chan,
++					      chan <= CH_MAX_2G_CHANNEL ?
++					      IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ);
++#endif
++	ch = ieee80211_get_channel(vif->priv->wiphy, freq);
++	if (ch)
++		cfg80211_chandef_create(&vif->chandef, ch, NL80211_CHAN_NO_HT);
++}
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
++static int sprdwl_cfg80211_get_channel(struct wiphy *wiphy,
++				       struct wireless_dev *wdev,
++				       unsigned int link_id,
++				       struct cfg80211_chan_def *chandef)
++#else
++static int sprdwl_cfg80211_get_channel(struct wiphy *wiphy,
++				       struct wireless_dev *wdev,
++				       struct cfg80211_chan_def *chandef)
++#endif
++{
++	struct sprdwl_vif *vif;
++
++	if (!wdev->netdev)
++		return -ENODEV;
++
++	vif = netdev_priv(wdev->netdev);
++	if (!vif->chandef.chan)
++		return -ENODATA;
++
++	*chandef = vif->chandef;
++	return 0;
++}
++
+ /* Associated station bookkeeping.
+  *
+  * The firmware announces every join and leave through sprdwl_report_softap(),
+@@ -1358,6 +1413,26 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 	sinfo->signal = sta.signal;
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL);
+ 
++	/* Firmware tidak memberi nilai rata-rata terpisah; laporkan pembacaan
++	 * terakhir supaya kolom signal_avg tidak tampil sebagai 0.
++	 */
++	sinfo->signal_avg = sta.signal;
++	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL_AVG);
++
++	if (vif->connect_jiffies) {
++		sinfo->connected_time =
++			(u32)((jiffies - vif->connect_jiffies) / HZ);
++		sinfo->filled |= BIT(NL80211_STA_INFO_CONNECTED_TIME);
++	}
++
++	/* Peer yang terlihat di sini sudah lewat asosiasi dan 4-way handshake:
++	 * tanpa ini LuCI menampilkannya sebagai belum terautentikasi.
++	 */
++	sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_AUTHENTICATED) |
++				BIT(NL80211_STA_FLAG_AUTHORIZED);
++	sinfo->sta_flags.set = sinfo->sta_flags.mask;
++	sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++
+ 	sinfo->tx_failed = sta.txfailed;
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE) |
+ 		BIT(NL80211_STA_INFO_TX_FAILED);
+@@ -1431,6 +1506,26 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 	sinfo->signal = sta.signal;
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL);
+ 
++	/* Firmware tidak memberi nilai rata-rata terpisah; laporkan pembacaan
++	 * terakhir supaya kolom signal_avg tidak tampil sebagai 0.
++	 */
++	sinfo->signal_avg = sta.signal;
++	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL_AVG);
++
++	if (vif->connect_jiffies) {
++		sinfo->connected_time =
++			(u32)((jiffies - vif->connect_jiffies) / HZ);
++		sinfo->filled |= BIT(NL80211_STA_INFO_CONNECTED_TIME);
++	}
++
++	/* Peer yang terlihat di sini sudah lewat asosiasi dan 4-way handshake:
++	 * tanpa ini LuCI menampilkannya sebagai belum terautentikasi.
++	 */
++	sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_AUTHENTICATED) |
++				BIT(NL80211_STA_FLAG_AUTHORIZED);
++	sinfo->sta_flags.set = sinfo->sta_flags.mask;
++	sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++
+ 	sinfo->tx_failed = sta.txfailed;
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE) |
+ 		BIT(NL80211_STA_INFO_TX_FAILED);
+@@ -2859,6 +2954,8 @@ void sprdwl_report_connection(struct sprdwl_vif *vif,
+ 
+ 	vif->sm_state = SPRDWL_CONNECTED;
+ 	memcpy(vif->bssid, conn_info->bssid, sizeof(vif->bssid));
++	sprdwl_save_sta_channel(vif, conn_info->channel);
++	vif->connect_jiffies = jiffies;
+ 	wl_ndev_log(L_DBG, vif->ndev, "%s %s to %s (%pM)\n", __func__,
+ 		    conn_info->status == SPRDWL_CONNECT_SUCCESS ?
+ 			"connect" : "roam", vif->ssid, vif->bssid);
+@@ -3675,6 +3772,7 @@ static struct cfg80211_ops sprdwl_cfg80211_ops = {
+ 	.change_station = sprdwl_cfg80211_change_station,
+ 	.get_station = sprdwl_cfg80211_get_station,
+ 	.dump_station = sprdwl_cfg80211_dump_station,
++	.get_channel = sprdwl_cfg80211_get_channel,
+ 	.libertas_set_mesh_channel = sprdwl_cfg80211_set_channel,
+ 	.scan = sprdwl_cfg80211_scan,
+ 	.connect = sprdwl_cfg80211_connect,
+diff --git a/unisocwifi/sprdwl.h b/unisocwifi/sprdwl.h
+index 03fe6ed..67ccb45 100644
+--- a/unisocwifi/sprdwl.h
++++ b/unisocwifi/sprdwl.h
+@@ -150,6 +150,11 @@ struct sprdwl_vif {
+ 	bool has_rand_mac;
+ 	u8 random_mac[ETH_ALEN];
+ 
++	/* kanal operasi saat ini, untuk cfg80211 get_channel */
++	struct cfg80211_chan_def chandef;
++	/* jiffies saat asosiasi berhasil, untuk NL80211_STA_INFO_CONNECTED_TIME */
++	unsigned long connect_jiffies;
++
+ 	/* stations associated in AP/GO mode, for cfg80211 dump_station */
+ 	spinlock_t sta_lock;
+ 	u8 sta_num;
