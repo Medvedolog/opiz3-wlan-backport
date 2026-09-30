@@ -46,7 +46,7 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-setuptools rsync swig unzip zlib1g-dev file wget zstd \
             ccache ecj fastjar java-propose-classpath libelf-dev \
-            python3-distutils-extra qemu-utils subversion
+            python3-distutils-extra qemu-utils subversion device-tree-compiler
 
       - name: Clone OpenWrt
         run: |
@@ -108,12 +108,31 @@ jobs:
           CONFIG_PACKAGE_luci-theme-footstrap=y
           CONFIG_PACKAGE_luci-theme-bootstrap=y
 
+          # Cellular modem stack and USB transport support
+          CONFIG_PACKAGE_modemmanager=y
+          CONFIG_PACKAGE_uqmi=y
+          CONFIG_PACKAGE_umbim=y
+          CONFIG_PACKAGE_usb-modeswitch=y
+          CONFIG_PACKAGE_comgt=y
+          CONFIG_PACKAGE_comgt-ncm=y
+
+          CONFIG_PACKAGE_kmod-usb-core=y
+          CONFIG_PACKAGE_kmod-usb2=y
+          CONFIG_PACKAGE_kmod-usb3=y
+          CONFIG_PACKAGE_kmod-usb-serial=y
+          CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+          CONFIG_PACKAGE_kmod-usb-serial-option=y
+          CONFIG_PACKAGE_kmod-usb-acm=y
+
           CONFIG_PACKAGE_kmod-usb-net=y
-          CONFIG_PACKAGE_kmod-usb-net-rndis=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+          CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-eem=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-subset=y
+          CONFIG_PACKAGE_kmod-mii=y
 
           CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
           CONFIG_PACKAGE_kmod-usb-net-asix=y
@@ -122,18 +141,55 @@ jobs:
           CONFIG_PACKAGE_kmod-usb-net-lan78xx=y
           CONFIG_PACKAGE_kmod-usb-net-dm9601-ether=y
           CONFIG_PACKAGE_kmod-usb-net-sr9700=y
+
+          CONFIG_PACKAGE_luci-proto-qmi=y
+          CONFIG_PACKAGE_luci-proto-mbim=y
+          CONFIG_PACKAGE_luci-proto-ncm=y
+          CONFIG_PACKAGE_luci-proto-modemmanager=y
+
           CONFIG_PACKAGE_usbutils=y
+          CONFIG_PACKAGE_pciutils=y
+          CONFIG_PACKAGE_picocom=y
+          CONFIG_PACKAGE_coreutils=y
+          CONFIG_PACKAGE_coreutils-timeout=y
+          CONFIG_PACKAGE_coreutils-stty=y
+          CONFIG_PACKAGE_ethtool=y
+          CONFIG_PACKAGE_ip-full=y
+          CONFIG_PACKAGE_ip-bridge=y
+          CONFIG_PACKAGE_ip-neighbor=y
+          CONFIG_PACKAGE_tcpdump=y
+          CONFIG_PACKAGE_lsof=y
+          CONFIG_PACKAGE_strace=y
+          CONFIG_PACKAGE_ppp=y
+          CONFIG_PACKAGE_chat=y
 
           CONFIG_PACKAGE_iperf3=y
-          CONFIG_PACKAGE_ethtool=y
-          CONFIG_PACKAGE_tcpdump-mini=y
           CONFIG_PACKAGE_htop=y
           EOF
 
           make defconfig
 
-          echo "Selected test packages:"
-          grep -E '^CONFIG_PACKAGE_(kmod-uwe5622|uwe5622-firmware|luci|luci-ssl|luci-theme-footstrap|luci-theme-bootstrap|kmod-usb-net|kmod-usb-net-rndis|kmod-usb-net-cdc-ether|kmod-usb-net-cdc-ncm|kmod-usb-net-cdc-eem|kmod-usb-net-cdc-subset|kmod-usb-net-rtl8152|kmod-usb-net-asix|kmod-usb-net-asix-ax88179|kmod-usb-net-smsc95xx|kmod-usb-net-lan78xx|kmod-usb-net-dm9601-ether|kmod-usb-net-sr9700|usbutils|iperf3|iw|iwinfo|wireless-regdb)=y' .config
+          echo "== requested package preflight =="
+          for p in \
+            modemmanager uqmi umbim usb-modeswitch comgt comgt-ncm \
+            kmod-usb-core kmod-usb2 kmod-usb3 \
+            kmod-usb-serial kmod-usb-serial-wwan kmod-usb-serial-option kmod-usb-acm \
+            kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis \
+            kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan \
+            kmod-usb-net-cdc-subset kmod-mii \
+            luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
+            usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty \
+            ethtool ip-full ip-bridge ip-neighbor tcpdump lsof strace ppp chat; do
+            if grep -q "^CONFIG_PACKAGE_${p}=y$" .config; then
+              printf '  OK      %s\n' "$p"
+            else
+              printf '  MISSING/NOT-SELECTED %s\n' "$p"
+              exit 1
+            fi
+          done
+
+          echo "Selected WLAN/test packages:"
+          grep -E '^CONFIG_PACKAGE_(kmod-uwe5622|uwe5622-firmware|luci|luci-ssl|luci-theme-footstrap|luci-theme-bootstrap|iperf3|iw|iwinfo|wireless-regdb)=y' .config
 
       - name: Download sources
         working-directory: openwrt
@@ -164,12 +220,19 @@ jobs:
           for p in \
             kmod-uwe5622 uwe5622-firmware \
             luci luci-ssl luci-theme-footstrap luci-theme-bootstrap \
-            kmod-usb-net-rndis kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm \
-            kmod-usb-net-cdc-eem kmod-usb-net-cdc-subset \
+            modemmanager uqmi umbim usb-modeswitch comgt comgt-ncm \
+            kmod-usb-core kmod-usb2 kmod-usb3 \
+            kmod-usb-serial kmod-usb-serial-wwan kmod-usb-serial-option kmod-usb-acm \
+            kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether \
+            kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan \
+            kmod-usb-net-cdc-eem kmod-usb-net-cdc-subset kmod-mii \
             kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179 \
             kmod-usb-net-smsc95xx kmod-usb-net-lan78xx \
             kmod-usb-net-dm9601-ether kmod-usb-net-sr9700 \
-            usbutils iw iwinfo wireless-regdb iperf3; do
+            luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
+            usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty \
+            ethtool ip-full ip-bridge ip-neighbor tcpdump lsof strace ppp chat \
+            iw iwinfo wireless-regdb iperf3; do
             if grep -q "^$p " "$MANIFEST"; then
               printf '  OK      %s\n' "$p"
             else
