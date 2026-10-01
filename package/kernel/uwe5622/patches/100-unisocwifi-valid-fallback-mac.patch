@@ -1,0 +1,30 @@
+From: Medvedolog <noreply@github.com>
+Subject: [PATCH] unisocwifi: provide a valid fallback MAC for AP operation
+
+The vendor driver leaves wlan0 at 00:00:00:00:00:00 when neither sunxi
+address management, firmware MAC nor a pending address is available.
+That is a known UWE5622 quirk and breaks hostapd/AP setup on Orange Pi
+Zero 3. A known-working mainline port explicitly requires assigning a
+non-zero MAC before starting hostapd.
+
+Generate a locally administered random MAC as the final fallback. The
+existing station path stores it in priv->default_mac, so subsequently
+created AP interfaces inherit a valid address instead of all zeroes.
+
+Do not add an explicit WIFI_CMD_SET_CHANNEL here: hardware testing showed
+that doing so before START_AP triggers the UWE5622 firmware rf_marlin
+channel assertion and resets WCN.
+
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -1091,8 +1091,11 @@ static void sprdwl_set_mac_addr(struct sprdwl_vif *vif, u8 *pending_addr,
+ 	} else if (priv && is_valid_ether_addr(priv->default_mac)) {
+ 		ether_addr_copy(addr, priv->default_mac);
+ 		default_mac_valid = 1;
+ 	} else {
+-		printk("no valid mac address!\n");
++		eth_random_addr(addr);
++		wl_info("no valid mac address, generated fallback %pM\n", addr);
+ 	}
+ 
+ 	switch (type) {
