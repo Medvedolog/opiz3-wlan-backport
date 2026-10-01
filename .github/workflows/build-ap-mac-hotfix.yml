@@ -147,6 +147,28 @@ jobs:
         working-directory: openwrt
         run: make download -j8 V=s
 
+      - name: Build OpenWrt host tools and toolchain
+        working-directory: openwrt
+        run: |
+          set -o pipefail
+          make tools/install -j"$(nproc)" V=s > tools.log 2>&1 || {
+            tail -200 tools.log
+            exit 1
+          }
+          make toolchain/install -j"$(nproc)" V=s > toolchain.log 2>&1 || {
+            tail -200 toolchain.log
+            exit 1
+          }
+          test -x staging_dir/toolchain-aarch64_cortex-a53_gcc-*/bin/aarch64-openwrt-linux-musl-gcc || {
+            echo "FATAL: target compiler was not produced"
+            find staging_dir -name 'aarch64-openwrt-linux-musl-gcc' -type f -o -type l 2>/dev/null | head -20
+            exit 1
+          }
+          test -x staging_dir/host/bin/m4 || {
+            echo "FATAL: host m4 was not produced"
+            exit 1
+          }
+
       - name: Prepare and verify patch
         working-directory: openwrt
         run: |
@@ -216,6 +238,8 @@ jobs:
           if-no-files-found: warn
           path: |
             openwrt/hotfix/*
+            openwrt/tools.log
+            openwrt/toolchain.log
             openwrt/kernel.log
             openwrt/mac80211.log
             openwrt/uwe5622.log
