@@ -101,6 +101,7 @@ jobs:
           CONFIG_PACKAGE_kmod-usb-serial=y
           CONFIG_PACKAGE_kmod-usb-serial-wwan=y
           CONFIG_PACKAGE_kmod-usb-serial-option=y
+          CONFIG_PACKAGE_kmod-usb-serial-qualcomm=y
           CONFIG_PACKAGE_kmod-usb-acm=y
           CONFIG_PACKAGE_kmod-usb-net=y
           CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
@@ -199,6 +200,15 @@ jobs:
           echo "kernel ABI: $ACTUAL"
           test "$ACTUAL" = "$EXPECTED_VERMAGIC"
 
+      - name: Build selected kernel module packages
+        working-directory: openwrt
+        run: |
+          set -o pipefail
+          make package/kernel/linux/compile -j"$(nproc)" V=s > kmods.log 2>&1 || {
+            tail -200 kmods.log
+            exit 1
+          }
+
       - name: Build cfg80211 backport and UWE5622 only
         working-directory: openwrt
         run: |
@@ -230,6 +240,11 @@ jobs:
             sha256sum "$APK" >> hotfix/sha256sums
           fi
 
+          QCOM=$(find bin/targets/$TARGET/$SUBTARGET/packages -name 'kmod-usb-serial-qualcomm-*.apk' | head -1)
+          test -n "$QCOM"
+          cp "$QCOM" hotfix/
+          sha256sum "$QCOM" >> hotfix/sha256sums
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -241,5 +256,6 @@ jobs:
             openwrt/tools.log
             openwrt/toolchain.log
             openwrt/kernel.log
+            openwrt/kmods.log
             openwrt/mac80211.log
             openwrt/uwe5622.log
