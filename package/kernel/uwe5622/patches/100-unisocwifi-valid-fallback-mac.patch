@@ -17,7 +17,7 @@ channel assertion and resets WCN.
 
 --- a/unisocwifi/main.c
 +++ b/unisocwifi/main.c
-@@ -1091,8 +1091,11 @@ static void sprdwl_set_mac_addr(struct sprdwl_vif *vif, u8 *pending_addr,
+@@ -1091,8 +1091,9 @@ static void sprdwl_set_mac_addr(struct sprdwl_vif *vif, u8 *pending_addr,
  	} else if (priv && is_valid_ether_addr(priv->default_mac)) {
  		ether_addr_copy(addr, priv->default_mac);
  		default_mac_valid = 1;
@@ -26,5 +26,5 @@ channel assertion and resets WCN.
 +		eth_random_addr(addr);
 +		wl_info("no valid mac address, generated fallback %pM\n", addr);
  	}
- 
+
  	switch (type) {
