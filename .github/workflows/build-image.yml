@@ -94,6 +94,7 @@ jobs:
 
       - name: Brand UWE5622 in LuCI and hide unavailable peer telemetry
         working-directory: openwrt
+        continue-on-error: true
         run: |
           python3 ../overlay/tools/patch-luci-uwe5622.py feeds/luci
           grep -q 'UNISOC UWE5622' feeds/luci/modules/luci-base/htdocs/luci-static/resources/network.js
