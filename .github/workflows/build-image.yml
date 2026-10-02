@@ -69,7 +69,7 @@ jobs:
           echo "UWE5622 patches:"
           ls -1 package/kernel/uwe5622/patches/
           test ! -f package/kernel/uwe5622/patches/100-unisocwifi-program-ap-channel-before-start.patch
-          echo "Control build: patch 100 intentionally disabled"
+          echo "Control build: patch 100 (AP SET_CHANNEL) intentionally disabled"
           grep -n "kmod-uwe5622" target/linux/sunxi/image/cortexa53.mk
 
       - name: Add Footstrap
@@ -83,12 +83,15 @@ jobs:
           test -f package/luci-theme-footstrap/root/etc/uci-defaults/30_luci-theme-footstrap
           echo "Footstrap $FOOTSTRAP_TAG staged"
           mkdir -p files/etc/uci-defaults
-          printf '%s\n' '#!/bin/sh' \
-            "uci set luci.themes.Footstrap='/luci-static/footstrap'" \
-            "uci set luci.main.mediaurlbase='/luci-static/footstrap'" \
-            'uci commit luci' 'exit 0' \
-            > files/etc/uci-defaults/99-opiz3-footstrap-default
-          chmod +x files/etc/uci-defaults/99-opiz3-footstrap-default
+          cat > files/etc/uci-defaults/zz-opiz3-footstrap-default <<'EOF'
+          #!/bin/sh
+          uci set luci.themes.Footstrap='/luci-static/footstrap'
+          uci set luci.main.mediaurlbase='/luci-static/footstrap'
+          uci commit luci
+          exit 0
+          EOF
+          chmod +x files/etc/uci-defaults/zz-opiz3-footstrap-default
+          test -x files/etc/uci-defaults/zz-opiz3-footstrap-default
 
       - name: Update feeds
         working-directory: openwrt
@@ -263,6 +266,14 @@ jobs:
             exit 1
           fi
           printf '  OK      patch100 SET_CHANNEL marker absent (control)\n'
+          strings "$KO" | grep -q 'AP WIFI_CMD_START_AP' && \
+            printf '  OK      AP WIFI_CMD_START_AP\n' || exit 1
+
+          echo "== Footstrap default payload =="
+          test -x files/etc/uci-defaults/zz-opiz3-footstrap-default
+          grep -q "mediaurlbase='/luci-static/footstrap'" \
+            files/etc/uci-defaults/zz-opiz3-footstrap-default
+          printf '  OK      zz-opiz3-footstrap-default\n'
 
           # Preserve exact full-image ABI test payload for fast hardware iteration.
           cp "$KO" "$OUT/sprdwl_ng-ap-channel-test.ko"
@@ -290,7 +301,7 @@ jobs:
           test -n "$DTB"
 
           # Decompile once, then extract the complete mmc1 node by brace depth.
-          # Do not rely on a fixed grep context: dtc output length/order can change.
+          # Count literal braces without regex escaping.
           dtc -I dtb -O dts "$DTB" 2>/dev/null > /tmp/opiz3.dts
           awk '
             function count_char(s, ch,    n, i) {
@@ -313,48 +324,13 @@ jobs:
           ' /tmp/opiz3.dts > "$OUT/mmc1-node.dts"
 
           test -s "$OUT/mmc1-node.dts"
-          if [ "$(wc -l < "$OUT/mmc1-node.dts")" -lt 3 ] || \
-             ! tail -1 "$OUT/mmc1-node.dts" | grep -q '^[[:space:]]*};[[:space:]]*
-          for prop in vmmc-supply vqmmc-supply mmc-pwrseq bus-width \
-                      non-removable mmc-ddr-1_8v; do
-            if grep -q "$prop" "$OUT/mmc1-node.dts"; then
-              printf '  OK      %s\n' "$prop"
-            else
-              printf '  MISSING %s\n' "$prop"
-              exit 1
-            fi
-          done
-          grep -q 'status = "okay";' "$OUT/mmc1-node.dts"
-          printf '  OK      status=okay\n'
-
-      - name: Preserve build diagnostics
-        if: always()
-        working-directory: openwrt
-        run: |
-          OUT=bin/targets/$TARGET/$SUBTARGET
-          mkdir -p "$OUT"
-          if [ -f build.log ]; then
-            tail -n 500 build.log > "$OUT/build-tail.log"
+          if [ "$(wc -l < "$OUT/mmc1-node.dts")" -lt 3 ]; then
+            echo "ERROR: mmc1-node.dts parser produced fewer than 3 lines" >&2
+            cat "$OUT/mmc1-node.dts" >&2
+            exit 1
           fi
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: opiz3-openwrt-25.12.5-uwe5622-test
-          retention-days: 30
-          if-no-files-found: warn
-          path: |
-            openwrt/bin/targets/sunxi/cortexa53/*orangepi-zero3*.img.gz
-            openwrt/bin/targets/sunxi/cortexa53/*orangepi-zero3*.manifest
-            openwrt/bin/targets/sunxi/cortexa53/sha256sums
-            openwrt/bin/targets/sunxi/cortexa53/mmc1-node.dts
-            openwrt/bin/targets/sunxi/cortexa53/sprdwl_ng-ap-channel-test.ko
-            openwrt/bin/targets/sunxi/cortexa53/kmod-uwe5622-ap-channel-test.apk
-            openwrt/bin/targets/sunxi/cortexa53/kernel-build.config
-            openwrt/bin/targets/sunxi/cortexa53/kernel-build.vermagic
-            openwrt/bin/targets/sunxi/cortexa53/driver-hotfix.sha256
-            openwrt/bin/targets/sunxi/cortexa53/build-tail.log
-; then
+          LAST_NODE_LINE=$(tail -1 "$OUT/mmc1-node.dts" | tr -d '[:space:]')
+          if [ "$LAST_NODE_LINE" != '};' ]; then
             echo "ERROR: mmc1-node.dts parser produced an incomplete node" >&2
             cat "$OUT/mmc1-node.dts" >&2
             exit 1
