@@ -283,22 +283,72 @@ jobs:
           # Do not rely on a fixed grep context: dtc output length/order can change.
           dtc -I dtb -O dts "$DTB" 2>/dev/null > /tmp/opiz3.dts
           awk '
+            function count_char(s, ch,    n, i) {
+              n = 0
+              for (i = 1; i <= length(s); i++)
+                if (substr(s, i, 1) == ch)
+                  n++
+              return n
+            }
             !in_node && index($0, "mmc@4021000") && index($0, "{") {
               in_node = 1
               depth = 0
             }
             in_node {
               print
-              line = $0
-              opens = gsub(/\\{/, "", line)
-              closes = gsub(/\\}/, "", line)
-              depth += opens - closes
+              depth += count_char($0, "{") - count_char($0, "}")
               if (depth == 0)
                 exit
             }
           ' /tmp/opiz3.dts > "$OUT/mmc1-node.dts"
 
           test -s "$OUT/mmc1-node.dts"
+          if [ "$(wc -l < "$OUT/mmc1-node.dts")" -lt 3 ] || \
+             ! tail -1 "$OUT/mmc1-node.dts" | grep -q '^[[:space:]]*};[[:space:]]*
+          for prop in vmmc-supply vqmmc-supply mmc-pwrseq bus-width \
+                      non-removable mmc-ddr-1_8v; do
+            if grep -q "$prop" "$OUT/mmc1-node.dts"; then
+              printf '  OK      %s\n' "$prop"
+            else
+              printf '  MISSING %s\n' "$prop"
+              exit 1
+            fi
+          done
+          grep -q 'status = "okay";' "$OUT/mmc1-node.dts"
+          printf '  OK      status=okay\n'
+
+      - name: Preserve build diagnostics
+        if: always()
+        working-directory: openwrt
+        run: |
+          OUT=bin/targets/$TARGET/$SUBTARGET
+          mkdir -p "$OUT"
+          if [ -f build.log ]; then
+            tail -n 500 build.log > "$OUT/build-tail.log"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opiz3-openwrt-25.12.5-uwe5622-test
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            openwrt/bin/targets/sunxi/cortexa53/*orangepi-zero3*.img.gz
+            openwrt/bin/targets/sunxi/cortexa53/*orangepi-zero3*.manifest
+            openwrt/bin/targets/sunxi/cortexa53/sha256sums
+            openwrt/bin/targets/sunxi/cortexa53/mmc1-node.dts
+            openwrt/bin/targets/sunxi/cortexa53/sprdwl_ng-ap-channel-test.ko
+            openwrt/bin/targets/sunxi/cortexa53/kmod-uwe5622-ap-channel-test.apk
+            openwrt/bin/targets/sunxi/cortexa53/kernel-build.config
+            openwrt/bin/targets/sunxi/cortexa53/kernel-build.vermagic
+            openwrt/bin/targets/sunxi/cortexa53/driver-hotfix.sha256
+            openwrt/bin/targets/sunxi/cortexa53/build-tail.log
+; then
+            echo "ERROR: mmc1-node.dts parser produced an incomplete node" >&2
+            cat "$OUT/mmc1-node.dts" >&2
+            exit 1
+          fi
           cat "$OUT/mmc1-node.dts"
 
           for prop in vmmc-supply vqmmc-supply mmc-pwrseq bus-width \
