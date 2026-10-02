@@ -38,8 +38,7 @@ jobs:
           set -euo pipefail
           API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${SDK_RUN_ID}"
           for n in $(seq 1 180); do
-            JSON="$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "X-GitHub-Api-Version: 2022-11-28" "$API")"
+            JSON="$(curl -fsSL -H "X-GitHub-Api-Version: 2022-11-28" "$API")"
             STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$JSON")"
             CONCLUSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")' <<<"$JSON")"
             echo "SDK #${SDK_RUN_ID}: status=${STATUS} conclusion=${CONCLUSION}"
