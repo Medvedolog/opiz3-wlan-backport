@@ -69,7 +69,7 @@ jobs:
           echo "UWE5622 patches:"
           ls -1 package/kernel/uwe5622/patches/
           test ! -f package/kernel/uwe5622/patches/100-unisocwifi-program-ap-channel-before-start.patch
-          echo "Control build: patch 100 (AP SET_CHANNEL) is intentionally disabled"
+          echo "Control build: patch 100 intentionally disabled"
           grep -n "kmod-uwe5622" target/linux/sunxi/image/cortexa53.mk
 
       - name: Add Footstrap
@@ -83,13 +83,11 @@ jobs:
           test -f package/luci-theme-footstrap/root/etc/uci-defaults/30_luci-theme-footstrap
           echo "Footstrap $FOOTSTRAP_TAG staged"
           mkdir -p files/etc/uci-defaults
-          cat > files/etc/uci-defaults/99-opiz3-footstrap-default <<'EOF'
-          #!/bin/sh
-          uci set luci.themes.Footstrap='/luci-static/footstrap'
-          uci set luci.main.mediaurlbase='/luci-static/footstrap'
-          uci commit luci
-          exit 0
-          EOF
+          printf '%s\n' '#!/bin/sh' \
+            "uci set luci.themes.Footstrap='/luci-static/footstrap'" \
+            "uci set luci.main.mediaurlbase='/luci-static/footstrap'" \
+            'uci commit luci' 'exit 0' \
+            > files/etc/uci-defaults/99-opiz3-footstrap-default
           chmod +x files/etc/uci-defaults/99-opiz3-footstrap-default
 
       - name: Update feeds
@@ -295,16 +293,20 @@ jobs:
           # Do not rely on a fixed grep context: dtc output length/order can change.
           dtc -I dtb -O dts "$DTB" 2>/dev/null > /tmp/opiz3.dts
           awk '
+            function count_char(s, ch,    n, i) {
+              n = 0
+              for (i = 1; i <= length(s); i++)
+                if (substr(s, i, 1) == ch)
+                  n++
+              return n
+            }
             !in_node && index($0, "mmc@4021000") && index($0, "{") {
               in_node = 1
               depth = 0
             }
             in_node {
               print
-              line = $0
-              opens = gsub(/{/, "{", line)
-              closes = gsub(/}/, "}", line)
-              depth += opens - closes
+              depth += count_char($0, "{") - count_char($0, "}")
               if (depth == 0)
                 exit
             }
