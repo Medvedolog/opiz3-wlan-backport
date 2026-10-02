@@ -1,4 +1,4 @@
-name: Import exact UWE5622 tree and run CI
+name: Dispatch full image after SDK gate
 
 on:
   push:
@@ -7,107 +7,31 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: write
 
 env:
-  BASE_COMMIT: 13e4978200555ef707d3738ab63b8497cfcdb293
-  ARCHIVE_BLOB: 700cece8774c6f763ec820574f3bf96fc66c7c0d
-  EXPECTED_TREE: 2bced1aae8fdceb8b64122fc5a9455760df0fa8e
-  TARGET_BRANCH: dev/uwe5622-ci-010-160
+  SDK_RUN_ID: 37029705349
+  TARGET_BRANCH: ci/uwe5622-010-160
 
 jobs:
-  import-and-dispatch:
+  wait-and-dispatch:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Fetch exact archived payload from Git object store
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${ARCHIVE_BLOB}" --jq .content \
-            | tr -d '\n' | base64 -d > /tmp/opiz3-changed-files.tar.gz
-          gzip -t /tmp/opiz3-changed-files.tar.gz
-
-      - name: Reconstruct and verify exact tree
-        run: |
-          set -euo pipefail
-          cat > /tmp/expected.txt <<'MANIFEST'
-          100644 blob 95beeb27fe9e7cd7810f755ebb347b5b29a1db8c .github/workflows/build-image.yml
-          100644 blob c6053aa26d7f9abeef81957305e5ba1e192a57f2 .github/workflows/build-packages.yml
-          100644 blob b1931bdbde06b91f634c34157e709b0f448331d2 docs/TECHNICAL-SPEC.md
-          100644 blob 2163bf58dc85f7c4b6966ee35d97cad2722969c6 docs/UWE5622-DRIVER-AUDIT.md
-          100644 blob 769f8d7e219a435244e80bb27980b3dcc6e259af docs/WCNMODEM-REVERSE-ENGINEERING.md
-          100644 blob a2940afbeba2309bae9a05d0503e1e34ac527d5c package/kernel/uwe5622/Makefile
-          100644 blob e4a0e119c45d53e86c68b3db6e25082d57783e21 package/kernel/uwe5622/patches/090-unisocwifi-implement-get-channel-and-station-details.patch
-          100644 blob 6c96a6464bb28993a6ac15d121daba33ea8a636b package/kernel/uwe5622/patches/110-openwrt-lean-profile.patch
-          100644 blob a9e56e33d2c71732b17ea7bf0b475754a358a3ba package/kernel/uwe5622/patches/120-unisocwifi-ap-mode-report-real-station-data.patch
-          100644 blob d7ea96dc44c1e43d40fc87355449cce0bcb6f138 package/kernel/uwe5622/patches/130-unisocwifi-tx-pool-gfp-atomic-and-tx-stats.patch
-          100644 blob d14bc38be1cf113d7a1655c11062f9573ee7919d package/kernel/uwe5622/patches/140-unisocwifi-honest-station-flags.patch
-          100644 blob 61867220dd5efa386e7a4bd89f6be8c6bbcf5b93 package/kernel/uwe5622/patches/150-unisocwifi-per-lut-host-counters.patch
-          100644 blob 9bb6861d28022cbc9540a9de69600f8d3973fd18 package/kernel/uwe5622/patches/160-unisocwifi-prepare-addba-before-enqueue.patch
-          100755 blob 44bad21c128242d102d4290d7f491d94bae79701 tools/wcnmodem-re.py
-          MANIFEST
-
-          git checkout --detach "$BASE_COMMIT"
-          tar -xzf /tmp/opiz3-changed-files.tar.gz
-
-          while read -r mode type expected path; do
-            case "$mode" in
-              100755) chmod 755 "$path" ;;
-              100644) chmod 644 "$path" ;;
-              *) echo "unexpected mode $mode for $path"; exit 1 ;;
-            esac
-            actual=$(git hash-object "$path")
-            printf '%s %s\n' "$actual" "$path"
-            test "$actual" = "$expected"
-            git add -- "$path"
-          done < /tmp/expected.txt
-
-          tree=$(git write-tree)
-          echo "tree=$tree"
-          test "$tree" = "$EXPECTED_TREE"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "uwe5622: integrate verified driver series 010-160"
-          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
-
-      - name: Push verified integration branch
-        run: |
-          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
-
-      - name: Run package CI and wait for full + lean
+      - name: Wait for SDK full + lean
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          HEAD_SHA=$(git rev-parse HEAD)
-          gh workflow run build-packages.yml --ref "$TARGET_BRANCH"
-
-          RUN_ID=""
-          for _ in $(seq 1 30); do
-            RUN_ID=$(gh run list --workflow build-packages.yml --branch "$TARGET_BRANCH" \
-              --event workflow_dispatch --limit 10 \
-              --json databaseId,headSha \
-              --jq '.[] | select(.headSha == "'"$HEAD_SHA"'") | .databaseId' | head -1)
-            [ -n "$RUN_ID" ] && break
-            sleep 2
-          done
-          test -n "$RUN_ID"
-          echo "package_run_id=$RUN_ID"
-          gh run watch "$RUN_ID" --exit-status
+          gh run watch "$SDK_RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
 
       - name: Dispatch full OpenWrt image build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh workflow run build-image.yml --ref "$TARGET_BRANCH"
+          gh workflow run build-image.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_BRANCH"
           sleep 5
-          gh run list --workflow build-image.yml --branch "$TARGET_BRANCH" \
-            --event workflow_dispatch --limit 3 \
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow build-image.yml \
+            --branch "$TARGET_BRANCH" --event workflow_dispatch --limit 3 \
             --json databaseId,status,conclusion,url,headSha
