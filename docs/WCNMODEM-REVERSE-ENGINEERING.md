@@ -1,6 +1,6 @@
 # Reverse engineering `wcnmodem.bin` — SC2355 / Marlin3
 
-Status: initial static analysis  
+Status: static analysis, revision 2 (§36–§43; corrections in §36)  
 Date: 2026-10-02  
 Target: Orange Pi Zero 3 / AW859A / UWE5622  
 Firmware SHA-256: `119b87ce30875734a67462f7293fb8fe85acf3270fe8b78c978ae24be7715a80`  
@@ -24,7 +24,8 @@ The most important initial findings are:
 6. its call site and body can be disassembled as Thumb-2;
 7. the firmware maintains a much larger per-station record than the Linux host driver currently exposes: the reverse-engineered record stride is `0x228` (552 bytes);
 8. the function copies a 24-byte station-status structure into a temporary local buffer and then decodes multiple packed bitfields before updating the station record;
-9. there is a command/event ID mismatch between this firmware's diagnostic table and the current Armbian host header. This requires careful validation before changing any protocol IDs.
+9. ~~there is a command/event ID mismatch between this firmware's diagnostic table and the current Armbian host header~~ — **corrected in §36.1**: the table is `{id, name}`, not `{name, id}`, and its IDs match the host header exactly.
+10. **revision 2 result (§37–§42):** no existing host command or event exports per-peer signal or rate in AP mode. `GET_STATION` resolves a peer only in station-type contexts; in AP mode it returns an empty rate and a calibration-only signal value.
 
 This makes the station/LUT path a realistic candidate for recovering additional per-peer information.
 
@@ -126,6 +127,8 @@ Examples recovered directly from the image:
 | 0xf6 | WIFI_EVENT_STA_LUT_INDICATION |
 
 The complete table also exposes RTT, NAN, IBSS, packet offload, hang recovery, radar detection and power-related events.
+
+> **Superseded by §36.1.** The table below was parsed with the wrong pairing (each name was paired with the *next* entry's ID). The real IDs match the host header; the rest of this section is kept for history.
 
 ### Important caution: IDs differ from the current host header
 
@@ -455,7 +458,7 @@ The first three do not require patching `wcnmodem.bin`.
 | station record stride = 0x228 | High |
 | input station-status object size = 24 bytes | High |
 | exact meaning of packed bits | Low/medium |
-| command-table IDs are on-wire IDs | Low |
+| command-table IDs are on-wire IDs | ~~Low~~ High after §36.1 (table re-parsed as `{id, name}`) |
 | richer per-peer signal/rate is exportable without firmware patch | Medium, promising |
 
 ---
@@ -1346,6 +1349,8 @@ Once a command-specific builder is identified, response structure offsets can be
 
 ## 25. Firmware command-name IDs are an internal namespace, not the host wire IDs
 
+> **Superseded by §36.1.** The conclusion of this section came from the mis-paired table parse. There is no internal namespace: the IDs are identical to the host's. The `0x38` response ID in §35 is consistent with this.
+
 The embedded firmware command/event table was parsed directly as `{name_ptr, id}` pairs.
 
 Examples:
@@ -1613,7 +1618,7 @@ At this stage the function at `0x00143c0c` should be described as:
 
 > a high-confidence station-info response path and strong candidate for the firmware-side GET_STATION handler.
 
-It is not yet labelled definitively as GET_STATION because the final external helper and command-dispatch registration are outside the analyzed flat image.
+It is not yet labelled definitively as GET_STATION because the final external helper and command-dispatch registration are outside the analyzed flat image. **Update:** confirmed in §38 and §39. The handler sends response ID `0x10`, and it resolves no peer in AP/GO contexts.
 
 ---
 
@@ -1724,7 +1729,7 @@ b.w  0x002073a4
 
 The value `0x38` is the actual host-visible wire command ID used by the current driver for `WIFI_CMD_LLSTAT`.
 
-This independently confirms that the embedded string-table IDs are not the wire IDs.
+~~This independently confirms that the embedded string-table IDs are not the wire IDs.~~ With the corrected `{id, name}` parse (§36.1), the table itself also gives `0x38 = WIFI_CMD_LINK_STAT`, so the table IDs and the wire IDs agree.
 
 ### GET branch
 
@@ -1795,3 +1800,235 @@ The remaining promising routes are now narrower:
 4. as a last resort, firmware modification.
 
 The immediate next reverse-engineering target is the producer of `WIFI_EVENT_STA_LUT_INDEX/INDICATION` and any neighboring event path that may already export rate/signal fields.
+
+---
+
+# Revision 2 — host-visible export paths
+
+These sections were produced independently of §29–§35 above and overlap with them in places: §29 ↔ §40 (rate formatter), §30–§31 ↔ §39 (GET_STATION handler), §35 ↔ §41 (LLSTAT). Where they overlap they agree. Revision 2 adds: the corrected name-table parse (§36.1), confirmation of `0x00143c0c` as GET_STATION through its response ID (§38), the AP-mode behaviour (§39), the internal rate-descriptor encoding (§40), and the negative results for STA_LUT and WFD_MIB (§41).
+
+Date: 2026-10-02
+Method: full Thumb-2 linear sweep of `0x00100130..0x00179200` (Capstone, Cortex-M mode), literal-pool resolution, xrefs by direct `bl`/`b.w` target. Reproduce with `tools/wcnmodem-re.py wcnmodem.bin out/` (writes `fw.S`, `fwtable.txt`, `cmdmap.txt`). All addresses below are runtime addresses with image base `0x00100000`.
+
+## 36. Corrections to revision 1
+
+### 36.1 The command/event name table is `{id, name}`
+
+The word immediately before the first name pointer is the ID of that entry:
+
+```text
+0x0017989c  0x00000001        id
+0x001798a0  0x0017c348  ->  "WIFI_CMD_GET_INFO"
+0x001798a4  0x00000002        id
+0x001798a8  0x0017c35c  ->  "WIFI_CMD_SET_REGDOM"
+...
+```
+
+The table has 96 entries (`0x0017989c..0x00179b9c`) and is consumed by the lookup routine at `0x00142426`:
+
+```asm
+ldr   r2, =0x0017989c       ; table base = first id word
+ldrh  r4, [r2, r1, lsl #3]  ; entry.id
+cmp   r4, r0
+...
+ldr   r0, [r2 + r1*8 + 4]   ; entry.name
+```
+
+Re-parsed with the correct pairing, every ID matches the current Armbian host header:
+
+| ID | Firmware name | Host name |
+|---:|---|---|
+| 0x01 | WIFI_CMD_GET_INFO | WIFI_CMD_GET_INFO |
+| 0x10 | WIFI_CMD_GET_STATION | WIFI_CMD_GET_STATION |
+| 0x11 | WIFI_CMD_START_AP | WIFI_CMD_START_AP |
+| 0x38 | WIFI_CMD_LINK_STAT | WIFI_CMD_LLSTAT |
+| 0x4b | WIFI_CMD_RSSI_MONITOR | WIFI_CMD_RSSI_MONITOR |
+| 0x53 | (not in the name table) | WIFI_CMD_SET_WOWLAN |
+| 0x89 | — | WIFI_EVENT_RSSI_MONITOR |
+| 0xa0 | WIFI_EVENT_NEW_STATION | WIFI_EVENT_NEW_STATION |
+| 0xb0 | WIFI_EVENT_CQM | WIFI_EVENT_CQM |
+| 0xf5 | WIFI_EVENT_STA_LUT_INDICATION | WIFI_EVENT_STA_LUT_INDEX |
+| 0xf9 | WIFI_EVENT_WFD_MIB_COUNTER | WIFI_EVENT_WFD_MIB_CNT |
+
+The "systematic +1 shift" in §4 and §25 was a parse artefact. Each name had been paired with the ID of the *following* entry, which also explains the apparent `DELBA_REQ = 0x38` and `NEW_STATION = 0xb0`. There is no protocol skew to investigate, and the table contains no command that the host does not already know.
+
+### 36.2 `ar_update_tx_statistic_info` is `0x00128554` only
+
+The name string at `0x0017925e` is loaded through the literal at `0x00128918` by two instructions, both inside `0x00128554`:
+
+```text
+0x001286a4  ldr r2, [pc, #0x270]  ; =0x0017925e
+0x001286f8  ldr r2, [pc, #0x21c]  ; =0x0017925e
+```
+
+`0x00128554` (callers `0x00128cc8`, `0x00128d6c`; 24 × 12-byte buckets) is `ar_update_tx_statistic_info`. The routine at `0x001288ca` (caller `0x00132ae4`; three outcome buckets, 100-sample window, 75/25 EWMA) is a different, unnamed function. The first §16 already reflects this ("Adjacent unnamed TX-status quality updater at 0x001288ca").
+
+---
+
+## 37. A large part of the WLAN stack runs from ROM
+
+Many calls and tail-branches leave the image, which ends at `0x001e73b0`:
+
+```text
+0x002073a4  command response sender     (33 call sites)
+0x00206748  event sender                (20 call sites)
+0x002143dc  station-entry lookup by (ctx, index)
+0x002053cc  / 0x0021816e  signal readers used by GET_STATION
+```
+
+No part of `wcnmodem.bin` maps there. `wcnmodem.bin` therefore extends a mask-ROM WLAN stack: it carries some command handlers, rate control and glue, and calls into ROM for the rest. Handlers for `GET_INFO`, `CONNECT`, `SCAN`, `SET_KEY` and so on are not in the image at all.
+
+Consequence: any field that is maintained only by ROM code (in particular the per-peer RSSI storage behind `0x0021816e`) cannot be located from this image alone.
+
+## 38. Command response sender and handler map
+
+`0x00143c0c` is reached through the callback slot at interface `+0x78c` (§31), and it answers with response ID `0x10`. That confirms it as the `GET_STATION` handler, rather than only a candidate.
+
+`0x002073a4(ctx, cmd_id, status, buf)` sends a command response. Every in-image call loads `cmd_id` into `r1` immediately before the call, which yields this handler map (function entry → command):
+
+| ID | Command | Handler(s) in image |
+|---:|---|---|
+| 0x0c | SCHED_SCAN | 0x0014199e |
+| 0x0d | DISCONNECT | 0x00143732, 0x001468c2 |
+| 0x10 | **GET_STATION** | **0x00143c0c** |
+| 0x11 | START_AP | 0x001431ec |
+| 0x15 | TX_MGMT | 0x00142548, 0x0014257c, 0x00146c58, 0x00146db2 |
+| 0x16 | REGISTER_FRAME | 0x00143eb4 |
+| 0x17 | REMAIN_CHAN | 0x00146c58 |
+| 0x19 | SET_IES | 0x00143a16 |
+| 0x1a | NOTIFY_IP_ACQUIRED | 0x001428e2 |
+| 0x38 | **LINK_STAT / LLSTAT** | **0x001423d8** |
+| 0x39..0x3f | IBSS family | 0x00141d60 .. 0x00141f04 |
+| 0x40 | RND_MAC_ADDR | 0x0014363e |
+| 0x48 | SPECIAL_DATA | 0x00143970 |
+| 0x4b | RSSI_MONITOR | 0x00142306 |
+| 0x4c | DOWNLOAD_INI | 0x001423a8 |
+| 0x4e | HANG_RECOVERY_START | 0x00141ce8 |
+| 0x53 | SET_WOWLAN | 0x00143d3e |
+| 0x54 | PACKET_OFFLOAD | 0x001436aa |
+
+The host command dispatcher entry is around `0x0014244a`. It rejects IDs `>= 0x55`, logs the name through `0x00142426`, and indexes per-command byte tables at `0x00179798` and `0x0018ac28`.
+
+## 39. `WIFI_CMD_GET_STATION` handler (`0x00143c0c`)
+
+Reconstructed control flow:
+
+```c
+int fw_get_station(int ctx, void *buf /* request reused as response */)
+{
+    u8 rate[8] = {0};          /* sp+0 .. sp+7 */
+    s8 signal = 0;
+    void *peer = NULL;
+    u8 type = ctx_table[ctx]->type;          /* *(*(0x122e74 + ctx*4)) */
+
+    if (!(type == 0 || type == 2 || type == 5) && rom_state(ctx) != 1)
+        return send_rsp(ctx, 0x10, -7, buf);  /* not connected */
+    /* (type 0/2/5 additionally require rom_state(ctx) == 1 or < 5) */
+
+    if (type == 0) {                           /* station-type context */
+        peer   = rom_sta_entry(ctx, rom_bss_index(ctx));
+        signal = rom_signal_ctx(peer);         /* 0x2053cc */
+    } else if (type == 2) {                    /* P2P-client-type context */
+        peer   = rom_sta_entry(ctx, rom_bss_index(ctx));
+        if (peer)
+            signal = rom_signal_peer(peer);    /* 0x21816e */
+    }
+    /* every other context type (AP, GO, ...) leaves peer = NULL, signal = 0 */
+
+    if (rom_channel(ctx) >= 36)
+        signal += rom_5g_offset(ctx);          /* 0x218b06 */
+    signal = clamp(signal, -100, 63);
+    signal += rf_rssi_offset(rom_channel(ctx));/* 0x131f8a */
+    if (signal > 0)
+        signal = 0;
+
+    if (peer)
+        fw_fill_rate_info(ctx, peer, rate);    /* 0x128e90 */
+
+    return rom_build_station_rsp(ctx, signal, rate, buf);   /* 0x206bfc */
+}
+```
+
+Findings:
+
+1. **The request payload is never read.** There is no MAC or LUT selector, which confirms the host-side observation.
+2. The peer is always "the BSS we are connected to" (`rom_bss_index(ctx)`), and only for station-type contexts.
+3. **In AP and GO mode no peer is resolved.** The rate block stays all-zero, and `signal` is just the band/channel calibration offsets clamped to `<= 0`. It is not a measurement.
+4. The response is built in ROM (`0x00206bfc`) from `signal` and the 8-byte rate block. This matches the host's `struct sprdwl_cmd_get_station` layout (`rate_info`, signal, noise, reserved, txfailed).
+
+**Driver consequence.** `get_station` in AP mode must not copy this reply into every associated station. It now reports only the `ASSOCIATED` flag and per-station connected time; see `package/kernel/uwe5622/patches/120-unisocwifi-ap-mode-report-real-station-data.patch`.
+
+## 40. Per-peer rate formatter (`0x00128e90`)
+
+`fw_fill_rate_info(ctx, peer, out)` produces exactly the host `struct sprdwl_rate_info { u8 flags; u8 mcs; u16 legacy; u8 nss; }` for **any** peer entry:
+
+```text
+T     = *(0x17d68c + 4)                       rate-control base
+idx   = peer[0]                               LUT/station index
+S     = T + idx*0x228 + 0x194                 station state block (§23)
+RS    = T + idx*0x228 + 0x1c0                 per-peer rate set, 5-byte entries
+mode  = byte at T + idx*0x228 + 0x23d         (S + 0xa9 is set to 1 when mode == 0)
+
+cur   = (mode == 0 || mode == 1) ? S[0xa4] - 1 : S[0xa5]
+D     = T + RS[cur*5] * 7                     7-byte rate descriptor
+
+switch (D[3]) {
+case 0: case 1:  out.legacy = D[2] * 10;  out.nss = 0;                    break; /* D[2] in Mbit/s -> 100 kbit/s */
+case 2:          out.mcs = D[1] & 0x7f;   out.nss = 0; out.flags |= 1;    break; /* HT  -> RATE_INFO_FLAGS_MCS */
+case 3:          out.mcs = D[1] & 0x0f;   out.nss = D[4] ? 2 : 1;
+                 out.flags |= 2;                                          break; /* VHT -> RATE_INFO_FLAGS_VHT_MCS */
+}
+if (RS[cur*5 + 3])   out.flags |= 0x40;       /* short GI (host maps BIT(6)) */
+if (S[0xad] == 1)    out.flags |= 0x04;       /* 40 MHz */
+if (S[0xad] == 2)    out.flags |= 0x08;       /* 80 MHz */
+```
+
+This settles several open items from revision 1:
+
+- `S + 0xa5` is the **current TX rate-set index** chosen by rate control (§27). `S + 0xa4` is the rate-set size, used while the state machine is in its initial modes.
+- `S + 0xad` is the **peer bandwidth**: 0 = 20, 1 = 40, 2 = 80 MHz.
+- The per-peer rate set at `+0x1c0` holds 5-byte entries: descriptor index, ?, ?, SGI flag, ….
+- The global 7-byte rate descriptors encode the PHY type (`[3]`: 0/1 legacy, 2 HT, 3 VHT), the MCS (`[1]`), the legacy rate in Mbit/s (`[2]`, scaled ×10 into the host's 100 kbit/s units), and VHT NSS (`[4]`).
+
+Only `GET_STATION` calls `0x00128e90` (single caller, `0x00143d28`). The firmware can describe the TX rate of every peer, but it is only ever asked to do so for the AP we are connected to.
+
+## 41. Other candidate export paths: all negative
+
+| Path | Producer | Payload | Per-peer signal/rate? |
+|---|---|---|---|
+| `LINK_STAT` (0x38) | `0x001423d8` → subtype 1 → `0x0015ef86` → `0x00207a84` | fixed 0x60 bytes from `*(0x120180) + 0xa8` | **No**: one global block, the aggregate `struct sprdwl_llstat_data` |
+| `STA_LUT_INDICATION` (0xf5) | `0x00144406` → `0x00206748` | 11 bytes: `ctx, action, lut, ra[6], ht, vht` | **No**: byte-identical to host `struct sprdwl_sta_lut_ind` |
+| `WFD_MIB_COUNTER` (0xf9) | `0x00134c08` → `0x0014415e` | 0x84 bytes: ctx + 4 words from `0x181f3c + ctx*20` + 0x48 + 0x28 copied blocks | **No**: per context (interface), not per peer |
+| `NEW_STATION` (0xa0) | ROM | — | not in image |
+| `RSSI_MONITOR` (0x4b) | `0x00142306` | configuration only; result events come from ROM | — |
+
+The `wifi_peer_info` / `wifi_rate_stat` structures in host `vendor.h` cannot be filled from any message this firmware sends.
+
+## 42. Conclusion for OpenWrt per-client statistics
+
+Without modifying firmware:
+
+- **Available per peer:** MAC (association events), LUT index, HT/VHT capability (`STA_LUT_INDICATION`), association time (host-side), and host-side TX/RX counters if the driver counts them per LUT (`tx_msg.c` already resolves `dscr->sta_lut_index` per frame).
+- **Not available per peer in AP mode:** signal, TX bitrate, retries/failures.
+
+The minimal firmware-side change that would expose the per-peer TX rate is small and uses only existing routines: in the `GET_STATION` handler, when the context is AP or GO and the request carries a LUT index, set `peer = rom_sta_entry(ctx, lut)` and fall through to `0x00128e90`. Per-peer signal would additionally need `0x0021816e(peer)`, whose AP-mode semantics live in ROM and are unverified. This remains a last resort. It also needs answers to questions that are open today:
+
+1. Does the loader verify a checksum or signature over `wcnmodem.bin`?
+2. Is there free space, or a patch/hook mechanism, inside the image?
+3. Does `0x0021816e` return a meaningful value for an AP-side peer?
+
+## 43. Updated confidence table
+
+| Finding | Confidence |
+|---|---|
+| name table layout `{id, name}`; IDs equal host wire IDs | High |
+| `0x002073a4` is the command response sender, `r1 = cmd_id` | High |
+| `0x00143c0c` is the `GET_STATION` handler | High |
+| `GET_STATION` ignores the request payload | High |
+| `GET_STATION` resolves no peer in AP/GO contexts | High |
+| `0x00128e90` formats host `sprdwl_rate_info` for an arbitrary peer | High |
+| `S+0xa5` current rate-set index, `S+0xad` bandwidth | High |
+| `LINK_STAT`, `STA_LUT`, `WFD_MIB` carry no per-peer signal/rate | High |
+| ROM provides response/event senders and RSSI readers | High |
+| context type 0 = STA, 2 = P2P client (exact enum values) | Medium |
+| meaning of `0x0021816e` for AP-side peers | Unknown (ROM) |

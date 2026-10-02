@@ -140,6 +140,8 @@ Each trim must be independently build-tested and hardware-tested. Record module 
 
 ## 3. TX path audit
 
+**Fixed (patch `130`):** `sprdwl_get_msg_buf()` used `kzalloc(GFP_KERNEL)` to grow the data pool when it was more than 80% in use. It is called from `ndo_start_xmit`, which runs with BH disabled, so this was a sleeping allocation in atomic context. It now uses `GFP_ATOMIC` and is counted in `tx_stats` (`data_pool_expand`, `data_pool_expand_fail`). The pool still grows without bound while above the threshold. Whether to cap it should be decided from hardware `tx_stats` data, not blindly.
+
 The WLAN driver has a large vendor TX path built around:
 
 - `tx_msg.c`;
@@ -197,6 +199,10 @@ No RX optimization should proceed until DHCP, ARP, IPv6 ND and mDNS remain relia
 Current OpenWrt patches correctly enumerate associated station MACs, but firmware command `WIFI_CMD_GET_STATION` has no peer-MAC argument.
 
 Therefore current signal/rate values must not be described as authoritative per-client metrics.
+
+**Status (2026-10-02, RE revision 2):** resolved as far as the existing protocol allows. The firmware `GET_STATION` handler resolves no peer at all in AP/GO mode: the rate is empty and the signal is a calibration offset. `LINK_STAT`, `STA_LUT_INDICATION` and `WFD_MIB_COUNTER` carry no per-peer signal or rate either (`WCNMODEM-REVERSE-ENGINEERING.md` §39–§42). Patch `120` makes AP-mode `get_station` report only real per-station data (the `ASSOCIATED` flag and per-station connected time) and return `-ENOENT` for unknown peers; with a full station table it returns success with an empty `station_info`. Per-LUT TX/RX byte and packet counters are implemented in patch `150` (debugfs `peer_stats` only). After hardware validation, the next steps are reporting RX through `station_info` and finding the latest TX completion point that still knows the LUT, so that TX can be reported as transmitted rather than enqueued.
+
+Fixed in `160`: `sprdwl_tx_msg_func()` called `prepare_addba(intf, dscr->sta_lut_index, msg->skb, ...)` *after* `sprdwl_queue_data_msg_buf()`, and outside the data branch. For data frames this was a use-after-free race with the TX thread. For command buffers it was an out-of-bounds read of `tx_num[32]`, indexed by command-payload bytes (`peer_entry` is NULL there, so no ADDBA was sent). `prepare_addba()` now runs inside the data/QoS branch before the enqueue, and `msg_type` is read into a local before queueing. Validate under sustained bidirectional iperf3.
 
 ### Next reverse-engineering target
 
@@ -367,13 +373,13 @@ Performance changes are accepted only if stability does not regress.
 
 ### P1: observability
 
-5. add TX/RX/SDIO counters needed for profiling;
+5. add TX/RX/SDIO counters needed for profiling (TX pool/flow/drop part done: patch `130`, `/sys/kernel/debug/sprdwl_debug/tx_stats`; RX and SDIO batching still open);
 6. expose a compact debug dump;
 7. record firmware capability response relevant to 5 GHz/VHT.
 
 ### P2: lean build
 
-8. make NAN/RTT/IBSS/NPI optional for the OpenWrt build;
+8. make NAN/RTT/IBSS/NPI optional for the OpenWrt build (patch `110`; fixed 2026-10-02: the previous `110` had a wrong hunk header, so GNU patch silently dropped the object-list hunk and the lean module still linked `npi.o`, `ibss.o`, `nan.o` and `rtt.o`. Measured against Linux 6.12/arm64: full 2.29 MB, lean 2.06 MB, about −228 KB);
 9. compare module size and behavior;
 10. consider further vendor-glue trimming only after dependency proof.
 

@@ -1,0 +1,70 @@
+Subject: [PATCH] unisocwifi: prepare ADDBA before queueing the data frame
+
+sprdwl_tx_msg_func() called prepare_addba(intf, dscr->sta_lut_index,
+msg->skb, peer_entry, tid) after the message had been queued, and outside
+the data/QoS branch:
+
+- For data frames, sprdwl_queue_data_msg_buf() hands msg to the TX thread,
+  which may send and free the skb that holds dscr before prepare_addba()
+  reads dscr->sta_lut_index and skb->data. That is a use-after-free under
+  load.
+- For command buffers, peer_entry is NULL so no ADDBA is sent, but the
+  condition first reads intf->tx_num[lut_index] with a "LUT index" taken
+  from the command payload. That is an out-of-bounds read of the 32-entry
+  array.
+
+Call prepare_addba() inside the data/QoS branch, right before the per-LUT
+TX accounting and the enqueue, while dscr, skb, peer_entry and tid are
+still owned by this function. ADDBA conditions and timing are unchanged.
+
+For the same reason, read msg->msg_type into a local before queueing and
+use it for the tx_up() decisions after the enqueue.
+
+---
+diff --git a/unisocwifi/tx_msg.c b/unisocwifi/tx_msg.c
+index 7bb3e8b..2ded243 100644
+--- a/unisocwifi/tx_msg.c
++++ b/unisocwifi/tx_msg.c
+@@ -1241,6 +1241,8 @@ int sprdwl_tx_msg_func(void *pdev, struct sprdwl_msg_buf *msg)
+ 	struct sprdwl_peer_entry *peer_entry = NULL;
+ 	unsigned char tid = 0, tos = 0;
+ 	struct tx_msdu_dscr *dscr = (struct tx_msdu_dscr *)msg->tran_data;
++	/* msg belongs to the TX thread once queued: keep what we need */
++	int msg_type = msg->msg_type;
+ 
+ 	if (msg->msglist == &tx_msg->tx_list_cmd) {
+ 		len = SPRDWL_MAX_CMD_TXLEN;
+@@ -1313,9 +1315,12 @@ int sprdwl_tx_msg_func(void *pdev, struct sprdwl_msg_buf *msg)
+ 			(qos_index == SPRDWL_AC_BK && data_list->l_num <= BK_TOTAL_QUOTA)
+ 			) {*/
+ 			msg->data_list = data_list;
+-			/* account before queueing: once queued, the TX thread
+-			 * may send and free the skb that holds dscr
++			/* Everything that reads dscr or msg->skb must run
++			 * before queueing: once queued, the TX thread may send
++			 * and free the skb that holds dscr.
+ 			 */
++			prepare_addba(intf, dscr->sta_lut_index,
++				      (struct sk_buff *)msg->skb, peer_entry, tid);
+ 			if (dscr->sta_lut_index < MAX_LUT_NUM) {
+ 				atomic64_inc(&peer_entry->tx_enqueued_packets);
+ 				atomic64_add(le16_to_cpu(dscr->pkt_len),
+@@ -1331,15 +1336,12 @@ int sprdwl_tx_msg_func(void *pdev, struct sprdwl_msg_buf *msg)
+ 		}*/
+ 	}
+ 
+-	if (msg->msg_type != SPRDWL_TYPE_DATA)
++	if (msg_type != SPRDWL_TYPE_DATA)
+ 		sprdwl_queue_msg_buf(msg, msg->msglist);
+ 
+-	prepare_addba(intf, dscr->sta_lut_index, (struct sk_buff *)msg->skb,
+-			 peer_entry, tid);
+-
+-	if (msg->msg_type == SPRDWL_TYPE_CMD)
++	if (msg_type == SPRDWL_TYPE_CMD)
+ 		tx_up(tx_msg);
+-	if (msg->msg_type == SPRDWL_TYPE_DATA &&
++	if (msg_type == SPRDWL_TYPE_DATA &&
+ 		((intf->fw_awake == 0 &&
+ 		intf->fw_power_down == 1) ||
+ 		intf->fw_awake == 1))

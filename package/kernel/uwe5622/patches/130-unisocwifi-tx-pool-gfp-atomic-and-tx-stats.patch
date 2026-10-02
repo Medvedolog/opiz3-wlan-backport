@@ -1,0 +1,159 @@
+Subject: [PATCH] unisocwifi: non-sleeping TX pool growth and tx_stats debugfs
+
+sprdwl_get_msg_buf() grows the data message pool with kzalloc(GFP_KERNEL)
+once more than 80% of it is in use. Data buffers are requested from
+sprdwl_start_xmit(), the ndo_start_xmit handler, which runs with bottom
+halves disabled, so this is a sleeping allocation in atomic context. It is
+reached exactly when TX backs up under sustained load. Use GFP_ATOMIC, and
+update the pool size under the freelist lock instead of racing between
+CPUs.
+
+Also add /sys/kernel/debug/sprdwl_debug/tx_stats, which reports the data
+pool size, use, peak and growth, the number of failed growth attempts, the
+netif stop/start counts, drop counters and the firmware credit colours. The
+existing log_level read formats a similar subset into a 128-byte buffer and
+truncates it.
+
+The new counters are atomic: transmit can run concurrently for several
+interfaces, and the peak is kept exact with a cmpxchg loop. Apart from one
+compare per data buffer for the peak, they are updated only on slow paths
+(pool growth, allocation failure). They give the measurements the audit asks
+for before any datapath tuning.
+
+---
+diff --git a/unisocwifi/tx_msg.c b/unisocwifi/tx_msg.c
+index 89c1eea..02adef8 100644
+--- a/unisocwifi/tx_msg.c
++++ b/unisocwifi/tx_msg.c
+@@ -66,22 +66,38 @@ struct sprdwl_msg_buf *sprdwl_get_msg_buf(void *pdev,
+ 	}
+ 
+ 	if (type == SPRDWL_TYPE_DATA && atomic_read(&list->ref) > (SPRDWL_TX_QOS_POOL_SIZE * 8 / 10)) {
+-		msg_buf = kzalloc(sizeof(*msg_buf), GFP_KERNEL);
++		/* Data buffers are requested from ndo_start_xmit, which runs
++		 * with bottom halves disabled: this allocation must not sleep.
++		 */
++		msg_buf = kzalloc(sizeof(*msg_buf), GFP_ATOMIC);
+ 		if (msg_buf) {
+ 			INIT_LIST_HEAD(&msg_buf->list);
+ 			spin_lock_bh(&sprdwl_tx_dev->tx_list_qos_pool.freelock);
+ 			list_add_tail(&msg_buf->list,
+ 			&sprdwl_tx_dev->tx_list_qos_pool.freelist);
+-			spin_unlock_bh(&sprdwl_tx_dev->tx_list_qos_pool.freelock);
+ 			sprdwl_tx_dev->tx_list_qos_pool.maxnum++;
++			spin_unlock_bh(&sprdwl_tx_dev->tx_list_qos_pool.freelock);
++			atomic_long_inc(&sprdwl_tx_dev->pool_expand_cnt);
+ 			msg = sprdwl_alloc_msg_buf(list);
+ 		} else {
+-			wl_err("%s failed to alloc msg_buf!\n", __func__);
++			atomic_long_inc(&sprdwl_tx_dev->pool_expand_fail_cnt);
++			wl_err_ratelimited("%s failed to alloc msg_buf!\n",
++					   __func__);
+ 		}
+ 	} else {
+ 		msg = sprdwl_alloc_msg_buf(list);
+ 	}
+ 
++	if (msg && type == SPRDWL_TYPE_DATA) {
++		int used = atomic_read(&list->ref);
++		int peak = atomic_read(&sprdwl_tx_dev->pool_peak);
++
++		/* exact maximum even when several CPUs transmit at once */
++		while (used > peak &&
++		       !atomic_try_cmpxchg(&sprdwl_tx_dev->pool_peak, &peak, used))
++			;
++	}
++
+ 	if (msg) {
+ #if defined(MORE_DEBUG)
+ 		getnstimeofday(&tx_begin);
+diff --git a/unisocwifi/tx_msg.h b/unisocwifi/tx_msg.h
+index 5489a90..7a30050 100644
+--- a/unisocwifi/tx_msg.h
++++ b/unisocwifi/tx_msg.h
+@@ -62,6 +62,10 @@ struct sprdwl_tx_msg {
+ 	unsigned long drop_data2_cnt;
+ 	unsigned long ring_cp;
+ 	unsigned long ring_ap;
++	/* data msg pool statistics, see debugfs sprdwl_debug/tx_stats */
++	atomic_long_t pool_expand_cnt;
++	atomic_long_t pool_expand_fail_cnt;
++	atomic_t pool_peak;
+ 	atomic_t flow0;
+ 	atomic_t flow1;
+ 	atomic_t flow2;
+diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
+index dae97a7..60ae33b 100644
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -435,6 +435,60 @@ static const struct file_operations txrx_debug_fops = {
+ 	.release = single_release,
+ };
+ 
++/* Always-on TX path counters. Apart from one compare per data buffer for
++ * the pool peak, every value is maintained on a slow path (pool expansion,
++ * flow control, drops) or read from existing state.
++ */
++static int tx_stats_show(struct seq_file *s, void *p)
++{
++	struct sprdwl_intf *intf = s->private;
++	struct sprdwl_tx_msg *tx_msg;
++	struct sprdwl_msg_list *pool;
++	int i;
++
++	tx_msg = (struct sprdwl_tx_msg *)intf->sprdwl_tx;
++	if (!tx_msg)
++		return 0;
++	pool = &tx_msg->tx_list_qos_pool;
++
++	seq_printf(s, "data_pool_size: %d\n", pool->maxnum);
++	seq_printf(s, "data_pool_initial: %d\n", SPRDWL_TX_QOS_POOL_SIZE);
++	seq_printf(s, "data_pool_in_use: %d\n", atomic_read(&pool->ref));
++	seq_printf(s, "data_pool_peak: %d\n", atomic_read(&tx_msg->pool_peak));
++	seq_printf(s, "data_pool_expand: %ld\n",
++		   atomic_long_read(&tx_msg->pool_expand_cnt));
++	seq_printf(s, "data_pool_expand_fail: %ld\n",
++		   atomic_long_read(&tx_msg->pool_expand_fail_cnt));
++	seq_printf(s, "data_pool_flow_stopped: %d\n", atomic_read(&pool->flow));
++	seq_printf(s, "cmd_list_in_use: %d\n",
++		   atomic_read(&tx_msg->tx_list_cmd.ref));
++	seq_printf(s, "net_stop: %lu\n", tx_msg->net_stop_cnt);
++	seq_printf(s, "net_start: %lu\n", tx_msg->net_start_cnt);
++	seq_printf(s, "drop_cmd: %lu\n", tx_msg->drop_cmd_cnt);
++	seq_printf(s, "drop_data_sta: %lu\n", tx_msg->drop_data1_cnt);
++	seq_printf(s, "drop_data_p2p: %lu\n", tx_msg->drop_data2_cnt);
++	seq_printf(s, "ring_ap: %lu\n", tx_msg->ring_ap);
++	seq_printf(s, "ring_cp: %lu\n", tx_msg->ring_cp);
++	for (i = 0; i < MAX_COLOR_BIT; i++)
++		seq_printf(s, "fw_credit_color%d: %d\n", i,
++			   atomic_read(&tx_msg->flow_ctrl[i].flow));
++
++	return 0;
++}
++
++static int tx_stats_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, tx_stats_show, inode->i_private);
++}
++
++static const struct file_operations tx_stats_fops = {
++	.owner = THIS_MODULE,
++	.open = tx_stats_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
+ static void sprdwl_debugfs(void *spdev, struct dentry *dir)
+ {
+ 	struct sprdwl_intf *intf;
+@@ -465,6 +519,9 @@ static void sprdwl_debugfs_init(struct sprdwl_intf *intf)
+ 		wl_err("%s, %d, create_file fail!\n", __func__, __LINE__);
+ 	else
+ 		debug_ctrl_init();
++
++	debugfs_create_file("tx_stats", S_IRUSR, sprdwl_debug_root, intf,
++			    &tx_stats_fops);
+ }
+ 
+ static void sprdwl_debugfs_deinit(void)

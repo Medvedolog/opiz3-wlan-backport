@@ -25,10 +25,10 @@ know. AP mode keeps the chandef cfg80211 supplied, which is complete.
 Signed-off-by: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
 ---
 diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
-index 1599148..7e3c442 100644
+index 0091e97..10b822a 100644
 --- a/unisocwifi/cfg80211.c
 +++ b/unisocwifi/cfg80211.c
-@@ -949,6 +949,9 @@ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
+@@ -950,6 +950,9 @@ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
  	struct sprdwl_vif *vif = netdev_priv(ndev);
  	struct sprdwl_intf *intf = (struct sprdwl_intf *)vif->priv->hw_priv;
  	struct cfg80211_beacon_data *beacon = &settings->beacon;
@@ -38,7 +38,7 @@ index 1599148..7e3c442 100644
  	struct ieee80211_mgmt *mgmt;
  	u16 mgmt_len, index = 0, hidden_index;
  	u8 *data = NULL;
-@@ -1141,6 +1144,58 @@ static int sprdwl_cfg80211_change_beacon(struct wiphy *wiphy,
+@@ -1143,6 +1146,58 @@ static int sprdwl_cfg80211_change_beacon(struct wiphy *wiphy,
  }
  #endif
  
@@ -97,7 +97,7 @@ index 1599148..7e3c442 100644
  /* Associated station bookkeeping.
   *
   * The firmware announces every join and leave through sprdwl_report_softap(),
-@@ -1358,6 +1413,26 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+@@ -1360,6 +1415,26 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
  	sinfo->signal = sta.signal;
  	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL);
  
@@ -124,7 +124,7 @@ index 1599148..7e3c442 100644
  	sinfo->tx_failed = sta.txfailed;
  	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE) |
  		BIT(NL80211_STA_INFO_TX_FAILED);
-@@ -1431,6 +1506,26 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+@@ -1433,6 +1508,26 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
  	sinfo->signal = sta.signal;
  	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL);
  
@@ -151,16 +151,16 @@ index 1599148..7e3c442 100644
  	sinfo->tx_failed = sta.txfailed;
  	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE) |
  		BIT(NL80211_STA_INFO_TX_FAILED);
-@@ -2859,6 +2954,8 @@ void sprdwl_report_connection(struct sprdwl_vif *vif,
+@@ -2953,6 +3048,8 @@ lookup_bss:
  
  	vif->sm_state = SPRDWL_CONNECTED;
  	memcpy(vif->bssid, conn_info->bssid, sizeof(vif->bssid));
 +	sprdwl_save_sta_channel(vif, conn_info->channel);
 +	vif->connect_jiffies = jiffies;
  	wl_ndev_log(L_DBG, vif->ndev, "%s %s to %s (%pM)\n", __func__,
- 		    conn_info->status == SPRDWL_CONNECT_SUCCESS ?
+ 		    state == SPRDWL_CONNECTING ?
  			"connect" : "roam", vif->ssid, vif->bssid);
-@@ -3675,6 +3772,7 @@ static struct cfg80211_ops sprdwl_cfg80211_ops = {
+@@ -3806,6 +3903,7 @@ static struct cfg80211_ops sprdwl_cfg80211_ops = {
  	.change_station = sprdwl_cfg80211_change_station,
  	.get_station = sprdwl_cfg80211_get_station,
  	.dump_station = sprdwl_cfg80211_dump_station,
@@ -169,7 +169,7 @@ index 1599148..7e3c442 100644
  	.scan = sprdwl_cfg80211_scan,
  	.connect = sprdwl_cfg80211_connect,
 diff --git a/unisocwifi/sprdwl.h b/unisocwifi/sprdwl.h
-index 03fe6ed..67ccb45 100644
+index 2d98d83..6d5e75a 100644
 --- a/unisocwifi/sprdwl.h
 +++ b/unisocwifi/sprdwl.h
 @@ -150,6 +150,11 @@ struct sprdwl_vif {

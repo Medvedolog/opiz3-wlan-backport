@@ -1,0 +1,62 @@
+Subject: [PATCH] unisocwifi: claim only ASSOCIATED in managed-mode station flags
+
+get_station in managed mode marked the AP as AUTHENTICATED and AUTHORIZED
+unconditionally. The driver only knows that the firmware reported a
+successful connection; the 802.1X/4-way handshake is run by wpa_supplicant
+afterwards, and whether the port is authorized is not driver state.
+
+Report only the ASSOCIATED flag, and only while the interface is connected.
+This matches what AP/GO mode reports after
+120-unisocwifi-ap-mode-report-real-station-data.patch.
+
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 4811427..7dfb735 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1530,13 +1530,16 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 		sinfo->filled |= BIT(NL80211_STA_INFO_CONNECTED_TIME);
+ 	}
+ 
+-	/* Peer yang terlihat di sini sudah lewat asosiasi dan 4-way handshake:
+-	 * tanpa ini LuCI menampilkannya sebagai belum terautentikasi.
++	/* The firmware connect report proves association with the AP. The
++	 * 802.1X/4-way handshake runs in wpa_supplicant afterwards, so the
++	 * driver does not know whether the port is authorized: claim only
++	 * ASSOCIATED.
+ 	 */
+-	sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_AUTHENTICATED) |
+-				BIT(NL80211_STA_FLAG_AUTHORIZED);
+-	sinfo->sta_flags.set = sinfo->sta_flags.mask;
+-	sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++	if (vif->sm_state == SPRDWL_CONNECTED) {
++		sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_ASSOCIATED);
++		sinfo->sta_flags.set = BIT(NL80211_STA_FLAG_ASSOCIATED);
++		sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++	}
+ 
+ 	sinfo->tx_failed = sta.txfailed;
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE) |
+@@ -1626,13 +1629,16 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 		sinfo->filled |= BIT(NL80211_STA_INFO_CONNECTED_TIME);
+ 	}
+ 
+-	/* Peer yang terlihat di sini sudah lewat asosiasi dan 4-way handshake:
+-	 * tanpa ini LuCI menampilkannya sebagai belum terautentikasi.
++	/* The firmware connect report proves association with the AP. The
++	 * 802.1X/4-way handshake runs in wpa_supplicant afterwards, so the
++	 * driver does not know whether the port is authorized: claim only
++	 * ASSOCIATED.
+ 	 */
+-	sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_AUTHENTICATED) |
+-				BIT(NL80211_STA_FLAG_AUTHORIZED);
+-	sinfo->sta_flags.set = sinfo->sta_flags.mask;
+-	sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++	if (vif->sm_state == SPRDWL_CONNECTED) {
++		sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_ASSOCIATED);
++		sinfo->sta_flags.set = BIT(NL80211_STA_FLAG_ASSOCIATED);
++		sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++	}
+ 
+ 	sinfo->tx_failed = sta.txfailed;
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE) |

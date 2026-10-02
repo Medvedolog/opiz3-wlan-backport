@@ -147,7 +147,16 @@ Current carried patches include:
 070-unisocwifi-fix-remaining-vlas.patch
 080-cfg80211-set-wiphy-params-backport-radio-idx.patch
 090-unisocwifi-implement-get-channel-and-station-details.patch
+100-unisocwifi-program-ap-channel-before-start.patch
+110-openwrt-lean-profile.patch
+120-unisocwifi-ap-mode-report-real-station-data.patch
+130-unisocwifi-tx-pool-gfp-atomic-and-tx-stats.patch
+140-unisocwifi-honest-station-flags.patch
+150-unisocwifi-per-lut-host-counters.patch
+160-unisocwifi-prepare-addba-before-enqueue.patch
 ```
+
+All patches apply to the pinned source with `patch -F0` (no fuzz).
 
 Some functionality previously carried by local patches has already moved into the pinned Armbian source and should not be duplicated.
 
@@ -287,6 +296,23 @@ The STA-LUT event provides useful identity/capability information such as:
 but not sufficient peer-specific RSSI/rate telemetry.
 
 Per-client RSSI/rate accuracy is not a blocker for the first usable release.
+
+Firmware reverse engineering (`WCNMODEM-REVERSE-ENGINEERING.md` §39–§42) has since shown that in AP/GO mode the firmware does not resolve a peer for `GET_STATION` at all, and that no other existing message carries per-peer signal or rate. Patch `120` therefore makes AP-mode `get_station` report only:
+
+- the `ASSOCIATED` flag (the driver has seen the firmware association report; authentication/authorization are hostapd state and are not claimed);
+- per-station connected time;
+
+and leaves signal, bitrate, tx_failed and traffic counters unset. If the driver's station table (16 entries) is full and the peer is not listed, `get_station` succeeds with an empty `station_info`, so hostapd does not drop the client but nothing is invented about it. Managed (STA) mode still uses the firmware reply, which there does describe the single peer, the AP we are connected to. Since patch `140` it also claims only `ASSOCIATED`, and only while connected.
+
+Per-client traffic is counted on the host (patch `150`) and exposed for validation in `/sys/kernel/debug/sprdwl_debug/peer_stats`:
+
+| Counter | Source | Meaning |
+|---|---|---|
+| `rx_packets`, `rx_bytes` | `rx_msdu_desc.sta_lut_index`, `msdu_len` | 802.3 MSDUs the firmware delivered for the LUT |
+| `tx_enqueued_packets`, `tx_enqueued_bytes` | `tx_msdu_dscr.sta_lut_index`, `pkt_len` | frames queued towards the LUT, not proof of transmission |
+| `rx_lut_invalid`, `rx_lut_ctx_mismatch` | global | RX frames that could not be attributed |
+
+They are not reported through `station_info` until validated on hardware. The SDIO `rx_msdu_desc` carries no RSSI or PHY rate (those fields exist only in `rx_mh_desc`, the memory-header path used by PCIe).
 
 ## 14. Channel reporting
 

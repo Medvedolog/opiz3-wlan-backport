@@ -246,7 +246,8 @@ jobs:
           KO=$(find build_dir -name sprdwl_ng.ko | head -1)
           test -n "$KO"
           for sym in sprdwl_cfg80211_dump_station sprdwl_add_assoc_sta \
-                     sprdwl_cfg80211_get_channel disable_powersave; do
+                     sprdwl_cfg80211_get_channel sprdwl_ap_get_station \
+                     tx_stats_show peer_stats_show disable_powersave; do
             strings "$KO" | grep -q "$sym" && printf '  OK      %s\n' "$sym" || exit 1
           done
           for marker in 'AP WIFI_CMD_SET_CHANNEL' 'AP WIFI_CMD_START_AP'; do

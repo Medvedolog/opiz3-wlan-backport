@@ -114,6 +114,7 @@ jobs:
           KO=$(find build_dir -name sprdwl_ng.ko | head -1)
           for sym in sprdwl_cfg80211_dump_station sprdwl_add_assoc_sta \
                      sprdwl_cfg80211_get_channel sprdwl_save_sta_channel \
+                     sprdwl_ap_get_station tx_stats_show peer_stats_show \
                      disable_powersave; do
             if strings "$KO" | grep -q "$sym"; then echo "  OK      $sym"
             else echo "  HILANG  $sym"; exit 1; fi
