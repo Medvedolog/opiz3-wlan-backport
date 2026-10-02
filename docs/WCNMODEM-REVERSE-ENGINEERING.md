@@ -287,11 +287,9 @@ Therefore:
 69 * 8 = 552 bytes = 0x228
 ```
 
-The firmware-side per-station object has a stride of **0x228 bytes** in this table.
+The arithmetic first establishes a **0x228-byte station stride**. Independent init/reset routines later found in the same image clear exactly `0x228` bytes for each station object, so the current conclusion is stronger: the firmware station state block is exactly **0x228 = 552 bytes**.
 
-This is significantly larger than the compact information maintained by the current Linux `sprdwl_peer_entry` path.
-
-It strongly suggests that the firmware maintains richer per-peer state internally.
+This is significantly larger than the compact information maintained by the current Linux `sprdwl_peer_entry` path and confirms that firmware maintains much richer per-peer state internally.
 
 ---
 
@@ -956,15 +954,11 @@ The next task is to determine the semantics of the two 32-bit counters and the f
 
 ---
 
-## 16. Recovered per-peer TX quality statistics inside firmware
+## 16. Adjacent unnamed TX-status quality updater at 0x001288ca
 
-A deeper Thumb-2 pass located the firmware routine referenced by the embedded function name:
+A deeper Thumb-2 pass located a second TX-status/statistics routine adjacent to the named automatic-rate code. This function is **not** `ar_update_tx_statistic_info`; the embedded name `ar_update_tx_statistic_info` belongs to the distinct function at `0x00128554` (its string is referenced from instructions around `0x001286a4` and `0x001286f8`).
 
-```text
-ar_update_tx_statistic_info
-```
-
-The function begins at approximately:
+The unnamed function begins at approximately:
 
 ```text
 0x001288ca
@@ -1082,19 +1076,7 @@ This is strong evidence that richer per-client rate-control telemetry exists ins
 
 ### 16.5 Relationship to rate control
 
-The same firmware image contains the function-name string:
-
-```text
-0find_rate0_idx_by_goodput
-```
-
-immediately adjacent in the internal symbol-name area to:
-
-```text
-ar_update_tx_statistic_info
-```
-
-This strongly suggests the recovered counters belong to the adaptive-rate/goodput algorithm.
+The same firmware image contains the strings `find_rate0_idx_by_goodput` and `ar_update_tx_statistic_info` in the same internal diagnostic-name area. That supports a relationship with the adaptive-rate/goodput subsystem, but it does **not** name the function at `0x001288ca`; that routine remains unnamed in the current analysis.
 
 The exact mapping of:
 
@@ -1166,260 +1148,6 @@ firmware existing telemetry
 | EWMA weights are 75% old / 25% new | High |
 | low two bits of input+0x1f select the three buckets | High |
 | semantic names of the buckets | Not yet proven |
-
-
----
-
-## 16. Rate-control/statistics pipeline recovered
-
-A broader search for all references to the same station-indexed memory region found a second highly relevant firmware function.
-
-The embedded string:
-
-```text
-ar_update_tx_statistic_info
-```
-
-is referenced from a literal pool at approximately `0x00128918`.
-
-The associated Thumb-2 function starts at approximately:
-
-```text
-0x00128554
-```
-
-and has at least two direct call sites:
-
-```text
-0x00128cc8
-0x00128d6c
-```
-
-This routine uses the same station/LUT index extraction pattern as `update_sta_lut_data()`:
-
-```asm
-ldrb  r5, [r1]
-add.w r0, r5, r5, lsl #2
-add.w r1, r0, r5, lsl #6
-...
-add.w r6, base, r1, lsl #3
-```
-
-which again yields an index stride of:
-
-```text
-0x228 bytes
-```
-
-### Important terminology correction
-
-The current evidence proves a **station-indexed stride of 0x228 bytes**.
-
-It does **not** yet prove that a single C structure is exactly 0x228 bytes long.
-
-Several routines access multiple station-indexed memory lanes at fixed offsets from the same global base, for example around:
-
-```text
-+0x194
-+0x248
-+0x284
-```
-
-while retaining the same `index * 0x228` spacing.
-
-The safest description is therefore:
-
-> firmware maintains station-indexed state with a 0x228-byte index stride across several related state/statistics regions.
-
-This wording replaces the earlier stronger "record size" interpretation.
-
----
-
-## 17. 24 internal TX/rate statistic buckets
-
-`ar_update_tx_statistic_info()` operates on a table beginning at the station-indexed region around:
-
-```text
-base + station_index * 0x228 + 0x284
-```
-
-A loop iterates exactly:
-
-```text
-0x18 = 24
-```
-
-entries.
-
-Each entry is addressed with a 12-byte stride:
-
-```asm
-add.w r1, r5, r5, lsl #1
-add.w r1, r4, r1, lsl #2
-```
-
-which is equivalent to:
-
-```text
-entry = table + index * 12
-```
-
-Within each entry, two 32-bit fields at offsets `+4` and `+8` are accumulated/updated.
-
-Another loop computes:
-
-```text
-value = counter_at_+4 * 100 / counter_at_+8
-```
-
-when the denominator is at least 3.
-
-That result is stored in a temporary array and the per-bucket counters are then cleared.
-
-This is strong evidence for a firmware-internal rate/statistics table.
-
-The exact semantic names of the two counters are not yet proven, but their usage is consistent with a success/goodput/retry quality ratio used by automatic rate control.
-
----
-
-## 18. `find_rate0_idx_by_goodput` located
-
-The embedded string:
-
-```text
-find_rate0_idx_by_goodput
-```
-
-is directly referenced from the function beginning at approximately:
-
-```text
-0x00126d54
-```
-
-This function reads the same 24-entry statistics table used by
-`ar_update_tx_statistic_info()`.
-
-For every bucket it:
-
-1. checks the denominator/counter at entry offset `+8`;
-2. when at least three samples exist, computes:
-
-```text
-(entry+4) * 100 / (entry+8)
-```
-
-3. records the resulting percentage;
-4. clears the two counters;
-5. scans the resulting 24-element quality array to select/update rate-control state.
-
-The function also maintains a signed averaged metric using two adjacent aggregate fields around:
-
-```text
-stats + 0x122  (16-bit count)
-stats + 0x124  (32-bit accumulated value)
-```
-
-It computes:
-
-```text
-average = accumulated_value / sample_count
-```
-
-and stores a smoothed signed byte at approximately:
-
-```text
-stats + 0x121
-```
-
-with a 50/50 update when a previous value exists.
-
-The exact physical meaning of this signed metric is not proven yet. It must not be labelled RSSI until a producer xref confirms that interpretation.
-
----
-
-## 19. Relationship between station status and rate statistics
-
-We now have two concrete firmware-side stages:
-
-```text
-update_sta_lut_data()
-    |
-    | 24-byte packed station/capability status
-    v
-station-indexed state (+0x194 lane)
-
-ar_update_tx_statistic_info()
-    |
-    | TX/rate samples
-    v
-24 x 12-byte statistic buckets (+0x284 lane)
-    |
-    v
-find_rate0_idx_by_goodput()
-    |
-    | percentage/quality calculation
-    | bucket reset
-    | rate selection / smoothing
-    v
-automatic rate-control state
-```
-
-This confirms that the firmware has per-station rate-control statistics that are substantially richer than the current Linux `GET_STATION` response.
-
----
-
-## 20. New implication for per-client OpenWrt statistics
-
-The most promising path is now more specific.
-
-The firmware already computes per-station, per-rate data internally.
-
-The host driver already defines:
-
-```c
-struct wifi_peer_info
-struct wifi_rate_stat
-```
-
-but does not populate them in the current LLSTAT implementation.
-
-Therefore the next reverse-engineering target is to identify a firmware routine that serializes either:
-
-- the 24 internal rate buckets;
-- the selected/current rate derived from them;
-- the smoothed station metric;
-- retry/failure counters;
-
-into a host response or event.
-
-If such an existing exporter exists, OpenWrt can gain real per-client statistics without patching firmware.
-
----
-
-## 21. Useful embedded diagnostic strings for the next pass
-
-Relevant strings already located in the image include:
-
-```text
-[ds:0x%02x ts:0x%02x retry:%d fc:%d]
-calc_roam_factor rssi=%d, trigger=%d
-send_notify_cqm_to_host rssi_low_count=%d, beacon_link_loss=%d
-low rssi, rssi
-roam_param_init, rssi_thold=%d
-Unexpected station entry LUT index
-machw_lut.c
-mcc_station.c
-ce_lut.c
-```
-
-These provide additional anchors for separating:
-
-- real RSSI/RCPI paths;
-- TX descriptor retry counters;
-- station LUT management;
-- rate-control statistics.
-
-The next step is to follow xrefs from the explicit RSSI strings and determine whether those routines access the same station-indexed state.
 
 
 ---
