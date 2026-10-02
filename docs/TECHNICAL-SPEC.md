@@ -63,6 +63,34 @@ Patch authorship/licensing must be preserved where third-party code is carried.
 
 The project should converge toward normal OpenWrt APIs rather than preserving unnecessary vendor glue.
 
+## 3.1 R&D scope and project boundary
+
+This specification covers more than a conventional kernel-version port.
+
+The project deliberately reuses the current Armbian UWE5622 driver as its source baseline. Armbian's responsibility is broader: maintaining the community vendor-derived stack across multiple boards and modern Linux versions. Earlier Orange Pi Zero 3 community work also provided important board/DTS and Linux 6.x bring-up experience.
+
+The additional R&D scope in this repository exists because the target is not merely a loadable driver but a router-grade OpenWrt radio. In scope are:
+
+- OpenWrt-specific cfg80211/nl80211 behavior;
+- correct AP and STA state reporting;
+- truthful per-station data rather than interface-level values relabeled as peer data;
+- host-side per-LUT traffic accounting;
+- SDIO TX/RX correctness and concurrency defects discovered under router workloads;
+- deterministic SDK and full-image CI, including generated-DTB QA;
+- 5 GHz/VHT functional and throughput validation;
+- power-save and early-probe failure analysis;
+- static reverse engineering of the closed Marlin3/SC2355 firmware where required to establish protocol behavior;
+- diagnostic live CP-memory reading only when necessary to recover otherwise unavailable telemetry, initially as an experimental/read-only path.
+
+Out of scope unless later evidence makes them necessary:
+
+- replacing the Armbian project as the general UWE5622 maintainer;
+- rewriting the complete vendor WLAN/WCN stack;
+- claiming unsupported RSSI/rate information;
+- modifying `wcnmodem.bin` merely to make user interfaces look complete.
+
+The engineering objective is therefore **narrow platform scope with deep behavioral validation**. Work is accepted only when it improves the defined OpenWrt use case and can be verified in CI and/or on the target hardware.
+
 ## 4. Architectural principle
 
 The project should minimize invasive OpenWrt changes.
