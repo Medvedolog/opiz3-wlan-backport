@@ -30,15 +30,12 @@ if needle not in s:
 network_js.write_text(s.replace(needle, replacement, 1), encoding="utf-8")
 
 s = status_js.read_text(encoding="utf-8")
-needle = """\twifirate(rate) {
-\t\tlet s = \`${rate.rate / 1000}\\xa0${_('Mbit/s')}, ${rate.mhz}\\xa0${_('MHz')}\`;
-"""
+needle = "\\twifirate(rate) {\\n"
 replacement = """\twifirate(rate) {
 \t\t/* UWE5622 SoftAP firmware exposes no per-peer rate API. */
 \t\tif (!rate || !rate.rate)
 \t\t\treturn '—'; // rate information unavailable
 
-\t\tlet s = \`${rate.rate / 1000}\\xa0${_('Mbit/s')}, ${rate.mhz}\\xa0${_('MHz')}\`;
 """
 if needle not in s:
     raise SystemExit("60_wifi.js rate insertion point not found")
