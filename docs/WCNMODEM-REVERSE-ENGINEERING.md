@@ -630,3 +630,227 @@ The highest-value next step is to find every code path using the same 0x228 stri
 - host-response/event producers.
 
 A reader that both indexes the same table and serializes data to the host would likely expose the missing per-peer statistics without requiring firmware modification.
+
+
+---
+
+## 16. Station-table xref sweep
+
+A full Thumb disassembly sweep for the station-table index arithmetic found a family of functions using the same `index * 0x228` addressing scheme.
+
+Confirmed sites include code around:
+
+```text
+0x001261d8
+0x00126584
+0x0012695a
+0x00126c4c
+0x00126cac
+0x001276ca
+0x00127812
+0x001278ac
+0x00127fe0
+0x00128214
+0x00128302
+0x001287ee
+```
+
+The repeated sequence is equivalent to:
+
+```text
+tmp = index * 5
+tmp = tmp + index * 64
+record = table_base + tmp * 8 + 0x194
+
+=> record = table_base + index * 0x228 + 0x194
+```
+
+This confirms that `0x228` is not an accidental constant from one function: it is the stride used throughout a substantial station/peer subsystem.
+
+The surrounding functions read/write fields around:
+
+```text
+record + 0x00
+record + 0x10
+record + 0x12
+record + 0x14
+record + 0x19
+record + 0x2c
+record + 0xa4 .. 0xb3
+record + 0xec .. 0xee
+record + 0x120 .. 0x124
+```
+
+Several helpers also access auxiliary areas related to the same indexed object beyond the first 0x194-byte offset.
+
+---
+
+## 17. `ar_update_tx_statistic_info` located
+
+The firmware contains the symbol/debug name:
+
+```text
+ar_update_tx_statistic_info
+```
+
+at file offset `0x7925e`.
+
+Its absolute string pointer is referenced from code inside the function beginning at approximately:
+
+```text
+0x00128554
+```
+
+This function again derives the station record using the `0x228` stride.
+
+Using:
+
+```text
+R = table_base + station_index * 0x228 + 0x194
+```
+
+the routine works with areas including approximately:
+
+```text
+R + 0x00
+R + 0xb4
+R + 0xec
+R + 0xed
+R + 0xf0
+R + 0x212
+R + 0x214
+```
+
+The function allocates local temporary tables and iterates over **24 entries**:
+
+```asm
+...
+adds r5, #1
+uxtb r5, r5
+cmp  r5, #0x18
+blo  ...
+```
+
+Within this loop it accumulates pairs of counters and later merges them into station-local statistics.
+
+Two particularly clear accumulators are:
+
+```text
+R + 0x212 : 16-bit accumulator/count
+R + 0x214 : 32-bit accumulator/sum
+```
+
+The routine adds newly calculated values into those fields.
+
+There are two direct call sites to this function currently identified:
+
+```text
+0x00128cc8
+0x00128d6c
+```
+
+Both occur in TX processing/control code, supporting the interpretation that this function updates per-peer automatic-rate/TX statistics.
+
+This is strong evidence that useful rate/retry/goodput state is maintained per station inside firmware.
+
+---
+
+## 18. `find_rate0_idx_by_goodput` and goodput EWMA field
+
+The adjacent firmware symbol/debug name:
+
+```text
+find_rate0_idx_by_goodput
+```
+
+is referenced by a function at approximately:
+
+```text
+0x00126d54
+```
+
+This function accesses the same station object.
+
+It computes:
+
+```text
+sample = (signed)sum / count
+```
+
+from the pair:
+
+```text
+R + 0x212  count
+R + 0x214  sum
+```
+
+and stores a signed 8-bit smoothed value at:
+
+```text
+R + 0x211
+```
+
+On the first sample it stores the value directly. On later samples the code performs an approximately 50/50 moving average:
+
+```text
+new = (old + sample) * 50 / 100
+```
+
+and then clears the two accumulators.
+
+### Important correction
+
+Because `R + 0x211` is accessed with `ldrsb`, it initially looked like a possible RSSI-like signed field.
+
+The function-name xref proves that interpreting it as RSSI would be premature/wrong: this field belongs to the firmware's **goodput/rate-selection logic**.
+
+This is why field semantics in the reverse-engineered structure are only assigned when supported by function/context evidence.
+
+---
+
+## 19. Rate-control state is richer than current host reporting
+
+The current host `GET_STATION` response exposes only:
+
+```text
+flags
+MCS
+legacy bitrate
+NSS
+signal
+noise
+txfailed
+```
+
+Firmware internally maintains substantially more data:
+
+- a 0x228-byte indexed peer/station record;
+- a 24-entry TX/rate statistics pass;
+- per-entry accumulated counters;
+- goodput-derived moving-average state;
+- HT/VHT/capability state;
+- multiple rate-selection helpers;
+- per-peer TX update paths called from TX completion/control logic.
+
+This makes a host-only extension increasingly plausible.
+
+The best next target is no longer simply `GET_STATION`. It is to identify a firmware command/event serialization path that reads the same automatic-rate statistics object.
+
+If such a path already exists, the OpenWrt driver can potentially expose meaningful per-peer rate/retry information without modifying firmware.
+
+---
+
+## 20. RSSI search status
+
+No per-peer RSSI field is considered proven yet.
+
+The signed field at `R + 0x211` has now been classified as goodput/rate-selection state, not RSSI.
+
+The RSSI search should instead focus on:
+
+1. functions that combine a station/LUT index with receive descriptor metadata;
+2. per-peer power-management / roaming functions;
+3. code paths that write signed PHY measurements into the 0x228-byte record;
+4. host serialization paths for `GET_STATION`, link stats, CQM or RSSI-monitor responses.
+
+This remains open.
