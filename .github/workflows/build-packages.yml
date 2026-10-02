@@ -127,6 +127,29 @@ jobs:
             size "$KO"
           } > "uwe5622-size-${{ matrix.lean }}.txt"
 
+          echo
+          echo "== verifikasi profil ${{ matrix.lean }} =="
+          OPTIONAL_SYMS="sprdwl_init_npi sprdwl_cfg80211_join_ibss sprdwl_vendor_nan_cmds sprdwl_ftm_init"
+          if [ "${{ matrix.lean }}" = "lean" ]; then
+            for sym in $OPTIONAL_SYMS; do
+              if strings "$KO" | grep -q "$sym"; then
+                echo "  TIDAK BOLEH ADA  $sym"
+                exit 1
+              else
+                echo "  OK dihapus       $sym"
+              fi
+            done
+          else
+            for sym in $OPTIONAL_SYMS; do
+              if strings "$KO" | grep -q "$sym"; then
+                echo "  OK ada           $sym"
+              else
+                echo "  HILANG            $sym"
+                exit 1
+              fi
+            done
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: uwe5622-packages-${{ env.RELEASE }}-${{ matrix.lean }}
