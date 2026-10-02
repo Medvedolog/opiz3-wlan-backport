@@ -1764,3 +1764,212 @@ returned no matching public source.
 Therefore the binary analysis is currently providing information that is not recoverable from a straightforward public source-code lookup.
 
 This increases the value of keeping the reverse-engineering notes and address map in-tree.
+
+
+---
+
+## 29. 5-byte firmware rate descriptor matches `sprdwl_rate_info`
+
+A key routine beginning at approximately:
+
+```text
+0x00128e90
+```
+
+reads the current station rate state from the 0x228-byte station block and writes a compact descriptor to its third argument.
+
+The output layout is exactly five bytes:
+
+```text
++0x00  flags / PHY-mode bits
++0x01  rate/MCS index
++0x02  16-bit legacy-rate-like value
++0x04  NSS / auxiliary rate byte
+```
+
+This matches the packed host structure byte-for-byte:
+
+```c
+struct sprdwl_rate_info {
+    u8 flags;
+    u8 mcs;
+    u16 legacy;
+    u8 nss;
+} __packed;
+```
+
+The routine performs different encodings depending on the internal PHY/rate mode and sets flag bits in byte 0. It reads the selected/current rate from:
+
+```text
+station + 0xa5
+```
+
+and follows that index through firmware rate tables before constructing the five-byte result.
+
+This is the strongest connection so far between the internal automatic-rate-control state and the Linux-visible `GET_STATION` ABI.
+
+---
+
+## 30. Candidate station-info / GET_STATION response path at 0x00143c0c
+
+The rate-descriptor builder at `0x00128e90` has exactly one direct caller in the firmware image:
+
+```text
+0x00143d28
+```
+
+inside a function beginning at approximately:
+
+```text
+0x00143c0c
+```
+
+That caller:
+
+1. determines a station/connection object for the supplied context;
+2. calculates and clamps a signed signal-like value to approximately:
+   `[-100, 63]`;
+3. zero-initializes a small stack result area;
+4. calls `0x00128e90` to generate the five-byte rate descriptor;
+5. passes:
+   - context/index,
+   - signed signal value,
+   - pointer to the generated rate descriptor,
+   - an auxiliary zero/default value
+   to a single external helper.
+
+The key sequence is:
+
+```asm
+mov  r2, sp
+mov  r1, station
+mov  r0, ctx
+bl   0x00128e90      ; build 5-byte rate descriptor
+
+mov  r3, r10         ; auxiliary/default field
+mov  r2, sp          ; rate descriptor
+sxtb r1, r4          ; signed signal
+mov  r0, r6          ; context
+bl   0x00206bfc
+```
+
+The external target `0x00206bfc` lies outside this flat firmware image, most likely in ROM or another separately mapped image.
+
+Importantly, `0x00206bfc` has only one direct call site in the analyzed firmware: this station-info path.
+
+### Why this strongly resembles `GET_STATION`
+
+The current host ABI expects:
+
+```c
+struct sprdwl_cmd_get_station {
+    struct sprdwl_rate_info rate; /* 5 bytes */
+    s8 signal;                    /* 1 byte */
+    u8 noise;                     /* 1 byte */
+    u8 reserved;                  /* 1 byte */
+    __le32 txfailed;              /* 4 bytes */
+} __packed;
+```
+
+The firmware caller independently supplies:
+
+- the exact 5-byte rate structure;
+- a signed signal value;
+- an auxiliary/default argument.
+
+This is a very strong structural match.
+
+The remaining four-byte `txfailed` field is not populated visibly in the caller and is therefore a plausible responsibility of the external/ROM helper `0x00206bfc`.
+
+At this stage the function at `0x00143c0c` should be described as:
+
+> a high-confidence station-info response path and strong candidate for the firmware-side GET_STATION handler.
+
+It is not yet labelled definitively as GET_STATION because the final external helper and command-dispatch registration are outside the analyzed flat image.
+
+---
+
+## 31. Station-info handler is registered as a firmware callback
+
+The function at `0x00143c0c` is not reached through a normal direct `BL` from the analyzed image.
+
+Instead, its Thumb pointer:
+
+```text
+0x00143c0d
+```
+
+is loaded during firmware initialization from literal slot:
+
+```text
+0x00141628
+```
+
+and written into a large firmware callback/interface structure:
+
+```asm
+ldr.w r0, =0x00143c0d
+str.w r0, [global_interface, #0x78c]
+```
+
+The registration code is around:
+
+```text
+0x0014126e
+```
+
+This explains why no direct caller was initially visible: the routine is invoked indirectly through a callback table owned by another firmware/ROM layer.
+
+That architecture is consistent with the external helper call at `0x00206bfc`.
+
+A likely call chain is therefore:
+
+```text
+host WLAN command / ROM dispatcher
+        |
+        v
+registered callback @ interface + 0x78c
+        |
+        v
+station-info handler @ 0x00143c0c
+        |
+        +-- calculate signal
+        +-- build sprdwl_rate_info-compatible descriptor
+        |
+        v
+ROM/external response helper @ 0x00206bfc
+        |
+        v
+HIF/SDIO response
+```
+
+This is a much tighter candidate mapping than the earlier generic HIF analysis.
+
+---
+
+## 32. Consequence for OpenWrt station statistics
+
+The firmware path now explains why the current host `GET_STATION` response has exactly the fields it does:
+
+- rate information is derived from the internal rate-control state;
+- signal is separately calculated/clamped;
+- the compact result is passed to a common external response helper.
+
+However, this path still appears to describe one context/current connection rather than an arbitrary AP peer selected by MAC address.
+
+That matches the host API limitation:
+
+```c
+sprdwl_get_station(...)
+/* request payload length = 0 */
+```
+
+There is no peer MAC or LUT index in the request.
+
+Therefore:
+
+- `GET_STATION` is now increasingly likely to be suitable for STA/interface-level status;
+- per-client AP statistics still need a different export path;
+- `LLSTAT`, a LUT-indexed event, or another firmware callback remains the most promising route for true AP per-peer data.
+
+The reverse engineering has nevertheless recovered the exact firmware-side rate encoding path needed to interpret/export current-rate state correctly.
