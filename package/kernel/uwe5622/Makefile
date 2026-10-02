@@ -28,6 +28,7 @@ define KernelPackage/uwe5622
   TITLE:=UNISOC UWE5622 (AW859A) SDIO wireless driver
   URL:=https://github.com/armbian/uwe5622
   DEPENDS:=@TARGET_sunxi_cortexa53 +kmod-cfg80211 +uwe5622-firmware
+  MENU:=1
   FILES:= \
 	$(PKG_BUILD_DIR)/unisocwcn/uwe5622_bsp_sdio.ko \
 	$(PKG_BUILD_DIR)/unisocwifi/sprdwl_ng.ko
@@ -37,6 +38,16 @@ define KernelPackage/uwe5622
   # frame terkirim, tidak bisa dijangkau sama sekali. Kedua modul kini dimuat
   # oleh init sprdwl-delay setelah jaringan naik, sehingga kegagalan driver
   # hanya mematikan Wi-Fi, bukan seluruh gateway.
+endef
+
+define KernelPackage/uwe5622/config
+	config UWE5622_LEAN
+		bool "Build lean OpenWrt WLAN profile"
+		default n
+		help
+		  Exclude vendor features not required for normal OpenWrt AP/STA
+		  operation (currently IBSS, NAN and RTT). Intended for controlled
+		  A/B testing before any upstream default is changed.
 endef
 
 define KernelPackage/uwe5622/description
@@ -73,7 +84,7 @@ define Build/Compile
 	+$(KERNEL_MAKE) $(PKG_JOBS) \
 		M=$(PKG_BUILD_DIR)/unisocwifi \
 		CONFIG_WLAN_UWE5622=m \
-		OPENWRT_UWE5622_LEAN=y \
+		OPENWRT_UWE5622_LEAN=$(if $(CONFIG_UWE5622_LEAN),y,n) \
 		UNISOC_BSP_INCLUDE=$(PKG_BUILD_DIR)/unisocwcn/include \
 		UNISOC_WIFI_CUS_CONFIG=/lib/firmware/uwe5622 \
 		NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
