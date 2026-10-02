@@ -23,6 +23,10 @@ env:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        lean: [full, lean]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +81,7 @@ jobs:
           CONFIG_TARGET_sunxi_cortexa53=y
           CONFIG_PACKAGE_kmod-uwe5622=m
           CONFIG_PACKAGE_uwe5622-firmware=y
+          ${{ matrix.lean == 'lean' && 'CONFIG_UWE5622_LEAN=y' || '# CONFIG_UWE5622_LEAN is not set' }}
           EOF
           make defconfig
 
@@ -97,7 +102,7 @@ jobs:
           }
           tail -60 uwe5622.log
 
-      - name: Periksa hasil
+      - name: Periksa hasil dan ukuran modul
         working-directory: sdk
         run: |
           echo "== paket yang dihasilkan =="
@@ -112,8 +117,19 @@ jobs:
             if strings "$KO" | grep -q "$sym"; then echo "  OK      $sym"
             else echo "  HILANG  $sym"; exit 1; fi
           done
+          echo
+          echo "== ukuran sprdwl_ng.ko (${{ matrix.lean }}) =="
+          stat -c 'bytes=%s' "$KO"
+          size "$KO"
+          {
+            echo "profile=${{ matrix.lean }}"
+            stat -c 'bytes=%s' "$KO"
+            size "$KO"
+          } > "uwe5622-size-${{ matrix.lean }}.txt"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: uwe5622-packages-${{ env.RELEASE }}
-          path: sdk/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/packages/*uwe5622*
+          name: uwe5622-packages-${{ env.RELEASE }}-${{ matrix.lean }}
+          path: |
+            sdk/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/packages/*uwe5622*
+            sdk/uwe5622-size-${{ matrix.lean }}.txt
