@@ -6,6 +6,8 @@ name: Build packages (SDK)
 
 on:
   push:
+    branches-ignore:
+      - ci/uwe5622-010-160-image
     paths:
       - 'package/**'
       - '.github/workflows/build-packages.yml'

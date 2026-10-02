@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev/owrt-25.12-uwe5622-current
+      - ci/uwe5622-010-160-image
     paths:
       - 'package/**'
       - 'target/**'
@@ -29,6 +30,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: overlay
+
+      - name: Require SDK full and lean PASS
+        env:
+          SDK_RUN_ID: "37029705349"
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${SDK_RUN_ID}"
+          for n in $(seq 1 180); do
+            JSON="$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" "$API")"
+            STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$JSON")"
+            CONCLUSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")' <<<"$JSON")"
+            echo "SDK #${SDK_RUN_ID}: status=${STATUS} conclusion=${CONCLUSION}"
+            if [ "$STATUS" = completed ]; then
+              test "$CONCLUSION" = success
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "SDK gate timed out" >&2
+          exit 1
 
       - name: Free runner disk
         run: |
