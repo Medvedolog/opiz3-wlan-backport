@@ -854,3 +854,101 @@ The RSSI search should instead focus on:
 4. host serialization paths for `GET_STATION`, link stats, CQM or RSSI-monitor responses.
 
 This remains open.
+
+
+---
+
+## 21. Reconstructed compact per-rate table inside each peer record
+
+Further disassembly of `ar_update_tx_statistic_info` gives a much clearer layout for the tail of the 0x228-byte station record.
+
+Define:
+
+```text
+R = table_base + station_index * 0x228 + 0x194
+```
+
+The function creates a pointer:
+
+```text
+rate_table = R + 0xF0
+```
+
+and iterates exactly 24 entries.
+
+For each entry it calculates:
+
+```text
+entry = rate_table + index * 12
+```
+
+The multiplication is explicit:
+
+```asm
+add.w r1, r5, r5, lsl #1   ; 3 * index
+add.w r1, r4, r1, lsl #2   ; base + 12 * index
+```
+
+The function then updates:
+
+```text
+entry + 0x04 : 32-bit accumulated counter
+entry + 0x08 : 32-bit accumulated counter
+```
+
+while `entry + 0x00` is not modified in this accumulation path.
+
+This strongly suggests a compact firmware rate-stat entry such as:
+
+```c
+struct fw_rate_bucket_candidate {
+    uint32_t rate_descriptor_or_key; /* semantics not yet proven */
+    uint32_t counter_a;
+    uint32_t counter_b;
+};
+```
+
+with:
+
+```text
+24 entries * 12 bytes = 288 bytes = 0x120
+```
+
+which fits exactly from:
+
+```text
+R + 0x0F0
+through approximately
+R + 0x20F
+```
+
+Immediately after this array are the already identified aggregate fields:
+
+```text
+R + 0x212 : 16-bit sample/count accumulator
+R + 0x214 : 32-bit sum accumulator
+```
+
+used by `find_rate0_idx_by_goodput`.
+
+This is one of the strongest structural findings so far: firmware maintains a **24-bucket per-peer rate/statistics table** that is absent from the compact current Linux `GET_STATION` response.
+
+### Why this matters
+
+The current Linux vendor structures define:
+
+```c
+struct wifi_rate_stat {
+    struct wifi_rate rate;
+    u32 tx_mpdu;
+    u32 rx_mpdu;
+    u32 mpdu_lost;
+    u32 retries;
+    u32 retries_short;
+    u32 retries_long;
+};
+```
+
+The firmware table is not byte-for-byte the same format, but its existence strongly supports the hypothesis that the richer Android/vendor per-peer reporting path was designed around firmware-maintained rate buckets and was lost or left unwired in this community driver generation.
+
+The next task is to determine the semantics of the two 32-bit counters and the first 32-bit rate descriptor/key.
