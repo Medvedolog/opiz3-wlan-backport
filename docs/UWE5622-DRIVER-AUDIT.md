@@ -64,6 +64,25 @@ It contains useful historical fixes such as:
 
 These are references only. Before importing any DeepAQ patch, verify that the equivalent is not already present in the pinned Armbian source.
 
+### Patch and source provenance
+
+Keep three categories distinct when discussing upstream credit:
+
+| Category | Source / author | How it is used here |
+|---|---|---|
+| Original BSP | Spreadtrum / UNISOC | Base vendor WCN/WLAN implementation inherited through the community driver |
+| Current driver baseline | Armbian `uwe5622` maintainers/contributors | Pinned source tree; modern-kernel fixes and multi-platform maintenance are inherited directly |
+| Earlier repository lineage | `EvilOlaf/uwe5622` | Armbian's current repository is forked from this earlier community tree |
+| Direct patch author | `jukeboge` | Patches `010`, `020`, `030`; original `From:` and `Signed-off-by:` retained |
+| Direct patch author | Rizki Ramadhan | Patches `060`, `080`, `090`; original `From:` and `Signed-off-by:` retained |
+| Historical/reference only | DeepAQ `openwrt-uwe5622-sunxi` | Used to compare older OpenWrt fixes; not used as the current source baseline |
+| Historical/reference only | Doct2O Zero 3 Linux 6.x port | Used as evidence/reference for board bring-up and conservative vendor-driver adaptation |
+| Firmware provenance | Orange Pi / Xunlong, via Armbian mirror | Public source lineage for `wcnmodem.bin` and companion firmware assets |
+
+Patches `070`, `100`–`160` are project-local work unless a future patch header states otherwise. Do not remove or rewrite third-party authorship when rebasing or refreshing a patch.
+
+This distinction matters: citing a repository used for comparison is not the same as claiming its code is carried, and inheriting fixes through the pinned Armbian tree is different from importing those fixes as local patches.
+
 ### Scope relative to Armbian and earlier community ports
 
 This project is downstream of, and dependent on, substantial community work. Its scope is different rather than universally larger.
