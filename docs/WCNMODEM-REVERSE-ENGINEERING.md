@@ -1420,3 +1420,68 @@ These provide additional anchors for separating:
 - rate-control statistics.
 
 The next step is to follow xrefs from the explicit RSSI strings and determine whether those routines access the same station-indexed state.
+
+
+---
+
+## 22. Rate-control state machine call graph
+
+The `find_rate0_idx_by_goodput` routine at approximately `0x00126d54` has two direct callers in the firmware:
+
+```text
+0x00127560
+0x0012763c
+```
+
+Both calls are inside the same station-indexed rate-control state machine beginning around `0x001274f2`.
+
+That state machine:
+
+- obtains a station/LUT index from the first byte of its station argument;
+- derives the same `index * 0x228` station lane;
+- accesses state around the `+0x194`, `+0x248`, and `+0x284` lanes;
+- invokes `find_rate0_idx_by_goodput`;
+- compares its result with a cached rate-selection byte around `+0xa5`;
+- updates state-machine states in the first few bytes of the `+0x194` lane;
+- eventually passes the chosen/updated value onward to another rate-control routine.
+
+This makes the recovered chain concrete:
+
+```text
+TX completion / statistics producer
+        |
+        v
+ar_update_tx_statistic_info() @ ~0x00128554
+        |
+        v
+24 x 12-byte per-rate buckets
+        |
+        v
+find_rate0_idx_by_goodput() @ ~0x00126d54
+        |
+        v
+station rate-control state machine @ ~0x001274f2
+```
+
+### Two direct callers of the TX statistics updater
+
+`ar_update_tx_statistic_info()` itself also has two direct call sites:
+
+```text
+0x00128cc8
+0x00128d6c
+```
+
+The first call is guarded by TX/status state and a threshold comparison before passing a station-indexed object.
+
+The second occurs while iterating a 32-bit station bitmap and looking up active station entries.
+
+This is strong evidence that the function is fed from real transmit-status/completion processing rather than from configuration-only code.
+
+### Practical consequence
+
+Per-client retry/rate information is definitely computed inside firmware on a station-indexed basis.
+
+The remaining problem is not whether the data exists; it is locating the serializer/export path from this internal rate-control state to the host protocol.
+
+That sharply narrows the next search.
