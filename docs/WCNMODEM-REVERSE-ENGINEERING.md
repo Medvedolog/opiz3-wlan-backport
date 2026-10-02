@@ -1485,3 +1485,130 @@ Per-client retry/rate information is definitely computed inside firmware on a st
 The remaining problem is not whether the data exists; it is locating the serializer/export path from this internal rate-control state to the host protocol.
 
 That sharply narrows the next search.
+
+
+---
+
+## 23. Station block size is now proven to be exactly 0x228 bytes
+
+A broader search for the station-index addressing pattern found two station initialization/reset routines around:
+
+```text
+0x001281fe
+0x001282f4
+```
+
+Both calculate:
+
+```text
+station = global_base + station_index * 0x228 + 0x194
+```
+
+and then immediately call a memory-clear helper with:
+
+```asm
+mov.w r1, #0x228
+mov   r0, station
+bl    clear/memset-like helper
+```
+
+followed by initialization of fields inside that same region.
+
+Therefore `0x228` is no longer merely an observed inter-station stride.
+
+It is the actual size of the station state block cleared/initialized by firmware:
+
+```text
+sizeof(firmware_station_state) = 0x228 = 552 bytes
+```
+
+Observed defaults after clear include fields around:
+
+```text
++0x2c
++0xa4
++0xa5
++0xa6
++0xa7
++0xa8
++0xad
++0xec
++0xed
++0xee
+```
+
+Some of these are directly consumed by the recovered rate-control state machine.
+
+This establishes a much stronger basis for reconstructing the internal station object.
+
+---
+
+## 24. Host-interface WLAN output handler identified
+
+The firmware contains a contiguous function-name cluster:
+
+```text
+send_hif_in_link_to_host
+set_hif_in_link
+hif_host_wlan_out_req_handler
+```
+
+The string `hif_host_wlan_out_req_handler` is referenced from code around:
+
+```text
+0x00139f1c
+```
+
+inside a larger function beginning approximately:
+
+```text
+0x00139ce2
+```
+
+The behavior of this function matches a host/WLAN request dispatcher:
+
+- reads request type/subtype fields;
+- branches over several request classes;
+- validates payload lengths;
+- iterates linked/request buffers;
+- invokes WLAN/MLME handlers;
+- ends through a common response/host-link path.
+
+A nearby helper beginning around:
+
+```text
+0x00139c9e
+```
+
+dispatches on a small set of request categories after subtracting a fixed base from a request field.
+
+Another common response path is invoked around:
+
+```text
+0x00139e82 -> 0x001391d4
+```
+
+with a request-derived value and a small status/result object.
+
+This region is now the primary candidate for locating the exact serializer used by:
+
+- `GET_STATION`;
+- `LINK_STAT/LLSTAT`;
+- station/LUT indications.
+
+### Why this matters
+
+Previous work established that rich per-station rate data exists internally.
+
+This host-interface dispatcher gives us the opposite side of the problem: the generic path by which firmware responses are prepared for the Linux driver.
+
+The next reverse-engineering step is therefore to connect:
+
+```text
+station/rate-control state
+        -> command-specific response builder
+        -> hif_host_wlan_out_req_handler / set_hif_in_link
+        -> SDIO host response
+```
+
+Once a command-specific builder is identified, response structure offsets can be mapped directly against the current host driver structs.
