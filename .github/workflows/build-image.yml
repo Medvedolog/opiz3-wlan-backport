@@ -7,6 +7,8 @@ on:
     paths:
       - 'package/**'
       - 'target/**'
+      - 'files/**'
+      - 'tools/**'
       - '.github/workflows/build-image.yml'
   workflow_dispatch:
 
