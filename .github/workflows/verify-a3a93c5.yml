@@ -1,5 +1,5 @@
 name: Verify and publish UWE5622 010-160
-# retrigger after all six archive chunks were staged
+# final retrigger after all six archive chunks are present
 
 on:
   push:
