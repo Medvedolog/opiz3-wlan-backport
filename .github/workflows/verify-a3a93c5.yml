@@ -1,0 +1,55 @@
+name: Verify and publish UWE5622 010-160
+
+on:
+  push:
+    branches:
+      - ci/uwe5622-010-160-stage
+    paths:
+      - .github/workflows/verify-a3a93c5.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify archive and construct exact tree
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat .ci/a3a93c5/archive.b64.* | base64 -d > /tmp/opiz3.tar.gz
+          echo "f0052bc872ded5a0f4bd6c29fac45ac7a460396cd5a5ac81a5d9c34ecf2b0572  /tmp/opiz3.tar.gz" | sha256sum -c -
+          cp .ci/a3a93c5/blobs.txt /tmp/blobs.txt
+
+          git checkout --detach 13e4978200555ef707d3738ab63b8497cfcdb293
+          tar -xzf /tmp/opiz3.tar.gz
+          chmod +x tools/wcnmodem-re.py
+
+          while read -r mode type sha path; do
+            actual="$(git hash-object "$path")"
+            if [ "$actual" != "$sha" ]; then
+              echo "blob mismatch: $path: $actual != $sha"
+              exit 1
+            fi
+          done < /tmp/blobs.txt
+
+          while read -r mode type sha path; do
+            git add -- "$path"
+          done < /tmp/blobs.txt
+
+          tree="$(git write-tree)"
+          echo "root tree: $tree"
+          test "$tree" = "2bced1aae8fdceb8b64122fc5a9455760df0fa8e"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          commit="$(printf '%s\n' 'uwe5622: integrate verified 010-160 series' | git commit-tree "$tree" -p 13e4978200555ef707d3738ab63b8497cfcdb293)"
+          echo "integration commit: $commit"
+          git push origin "$commit:refs/heads/ci/uwe5622-010-160" --force
