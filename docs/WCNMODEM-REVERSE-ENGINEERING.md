@@ -474,3 +474,159 @@ The next checkpoint should produce:
 - a concrete host-side patch proposal only if the protocol evidence is sufficient.
 
 No firmware bytes have been modified at this stage.
+
+
+---
+
+## 14. LLSTAT host path contains dormant per-peer data structures
+
+A second pass over the current Armbian host driver found an important asymmetry.
+
+The vendor API defines rich per-rate and per-peer structures:
+
+```c
+struct wifi_rate {
+    u32 preamble:3;
+    u32 nss:2;
+    u32 bw:3;
+    u32 ratemcsidx:8;
+    u32 reserved:16;
+    u32 bitrate;
+};
+
+struct wifi_rate_stat {
+    struct wifi_rate rate;
+    u32 tx_mpdu;
+    u32 rx_mpdu;
+    u32 mpdu_lost;
+    u32 retries;
+    u32 retries_short;
+    u32 retries_long;
+};
+
+struct wifi_peer_info {
+    u8 type;
+    u8 peer_mac_address[6];
+    u32 capabilities;
+    u32 num_rate;
+    struct wifi_rate_stat rate_stats[];
+};
+```
+
+and `struct wifi_iface_stat` contains:
+
+```c
+u32 num_peers;
+struct wifi_peer_info peer_info[];
+```
+
+However the actual firmware response currently consumed by
+`sprdwl_vendor_get_llstat_handler()` is only:
+
+```c
+struct sprdwl_llstat_data {
+    int rssi_mgmt;
+    u32 bcn_rx_cnt;
+    struct sprdwl_wmm_ac_stat ac[WIFI_AC_MAX];
+    u32 on_time;
+    u32 on_time_scan;
+    u64 radio_tx_time;
+    u64 radio_rx_time;
+};
+```
+
+This contains aggregate interface/radio counters only.
+
+The current handler fills:
+
+- beacon count;
+- management RSSI;
+- aggregate WMM AC counters;
+- radio on/tx/rx/scan time;
+
+but does **not** fill:
+
+- `iface_st->num_peers`;
+- `iface_st->peer_info[]`;
+- `wifi_rate_stat` records.
+
+This is significant because the host-side API already has the exact data model needed by LuCI/OpenWrt for per-client rate/retry information, while the currently used firmware response path exposes only aggregate counters.
+
+### Working hypothesis
+
+One of the following is likely true:
+
+1. a richer LLSTAT firmware subcommand/version existed but is not used by this driver revision;
+2. per-peer records are available through another command/event and were intended to be merged into `wifi_iface_stat`;
+3. the 0x228-byte firmware station object is the source from which a richer link-stat response could be generated;
+4. vendor Android userspace once consumed an additional path that the community Linux port no longer wires up.
+
+This makes `wifi_peer_info` / `wifi_rate_stat` an important historical clue, not dead structure definitions to delete.
+
+---
+
+## 15. First reconstructed firmware station-update routine
+
+The function associated with the embedded name `update_sta_lut_data` is located at approximately:
+
+```text
+0x00127fce
+```
+
+and has one direct call found in the full Thumb disassembly:
+
+```text
+0x00169ffa  bl 0x00127fce
+```
+
+At the call site:
+
+```asm
+mov r2, sp
+mov r1, r6
+mov r0, r7
+bl  0x00127fce
+```
+
+The caller constructs a packed status object on its stack before the call.
+
+Inside the callee the station index is read from the first byte of argument 2 and converted to a record address:
+
+```asm
+ldrb  r6, [r1]
+add.w r0, r6, r6, lsl #2
+add.w r1, r0, r6, lsl #6
+ldr.w r0, [global, #4]
+add.w r4, r0, r1, lsl #3
+add.w r4, r4, #0x194
+```
+
+Equivalent address arithmetic:
+
+```text
+record = table_base + station_index * 0x228 + 0x194
+```
+
+The routine then copies 24 bytes from the caller-provided status block:
+
+```asm
+movs r2, #0x18
+...
+bl memcpy-like routine
+```
+
+and decodes multiple packed capability/state fields.
+
+This is strong evidence that firmware has a substantial station-state object keyed by station/LUT index, while only a small subset reaches the current Linux driver.
+
+### Reverse-engineering direction from here
+
+The highest-value next step is to find every code path using the same 0x228 stride and classify them into:
+
+- update/write paths;
+- statistics readers;
+- rate-control readers;
+- power-management readers;
+- host-response/event producers.
+
+A reader that both indexes the same table and serializes data to the host would likely expose the missing per-peer statistics without requiring firmware modification.
