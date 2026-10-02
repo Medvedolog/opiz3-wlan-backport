@@ -39,7 +39,7 @@ start_service() {
 				set wireless.opiz3_ap.ssid=OPIZ3_AP
 				set wireless.opiz3_ap.encryption=psk2
 				set wireless.opiz3_ap.cipher=ccmp
-				set wireless.opiz3_ap.key=banderlog
+				set wireless.opiz3_ap.key=12345678
 				set wireless.opiz3_ap.ieee80211w=0
 			EOF
 			uci commit wireless

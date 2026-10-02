@@ -1,0 +1,35 @@
+From: Medvedolog <noreply@github.com>
+Subject: [PATCH] unisocwifi: derive SoftAP beacon channel from cfg80211 chandef
+
+OpenWrt/hostapd passes the selected AP channel in settings->chandef. The
+vendor driver ignored it and only rewrote beacon channel IEs when a debug
+softap_channel or STA+SoftAP SCC channel happened to be configured.
+
+That leaves userspace reporting channel 36 / AP-ENABLED while firmware
+receives an unadjusted START_AP beacon and no 5 GHz SSID is emitted.
+
+Use the cfg80211 primary channel as the normal input to the existing vendor
+beacon rewrite path. Keep STA+SoftAP SCC and debug softap_channel as higher
+priority overrides.
+
+Do not issue WIFI_CMD_SET_CHANNEL here. Hardware testing showed that sending
+that command before START_AP asserts rf_marlin and resets WCN on UWE5622.
+
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -979,6 +979,13 @@ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
+ #endif
+ 	vif->ssid_len = settings->ssid_len;
+ 
++	/* START_AP derives the RF channel from the beacon. Feed the channel
++	 * selected by cfg80211 into the vendor beacon rewrite path instead of
++	 * issuing WIFI_CMD_SET_CHANNEL, which crashes this firmware.
++	 */
++	if (settings->chandef.chan)
++		chn = settings->chandef.chan->hw_value;
++
+ #ifdef STA_SOFTAP_SCC_MODE
+ 	chn = intf->sta_home_channel;
+ #endif

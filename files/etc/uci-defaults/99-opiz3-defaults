@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Orange Pi Zero 3 factory defaults: fixed UTC+3 without DST.
+uci -q set system.@system[0].timezone='MSK-3'
+uci -q set system.@system[0].zonename='Europe/Moscow'
+uci -q commit system
+
+exit 0

@@ -1,0 +1,56 @@
+From: Medvedolog <noreply@github.com>
+Subject: [PATCH] unisocwifi: do not fake per-peer telemetry in SoftAP mode
+
+WIFI_CMD_GET_STATION has no peer MAC in its request. It is useful for the
+managed-mode peer, but in SoftAP mode it cannot return per-client statistics.
+Calling it for every MAC discovered by dump_station therefore exports zero
+signal/rate fields as if they were valid measurements.
+
+For AP/GO peers report only association/authentication state and leave
+signal/rate counters absent. LuCI can then present the values as unavailable
+instead of claiming 0 Mbit/s.
+
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1386,7 +1386,19 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 	struct sprdwl_cmd_get_station sta;
+ 	struct sprdwl_rate_info *rate;
+ 	int ret;
+ 
++	/* WIFI_CMD_GET_STATION carries no peer MAC. In AP/GO mode its result
++	 * is not per-station telemetry, so do not publish zero/aggregate values
++	 * as measurements for an individual associated client.
++	 */
++	if (vif->mode == SPRDWL_MODE_AP || vif->mode == SPRDWL_MODE_P2P_GO) {
++		sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_AUTHENTICATED) |
++				BIT(NL80211_STA_FLAG_AUTHORIZED);
++		sinfo->sta_flags.set = sinfo->sta_flags.mask;
++		sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++		return 0;
++	}
++
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BYTES) |
+ 			 BIT(NL80211_STA_INFO_TX_PACKETS) |
+ 			 BIT(NL80211_STA_INFO_RX_BYTES) |
+@@ -1479,7 +1491,19 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 	struct sprdwl_cmd_get_station sta;
+ 	struct sprdwl_rate_info *rate;
+ 	int ret;
+ 
++	/* WIFI_CMD_GET_STATION carries no peer MAC. In AP/GO mode its result
++	 * is not per-station telemetry, so do not publish zero/aggregate values
++	 * as measurements for an individual associated client.
++	 */
++	if (vif->mode == SPRDWL_MODE_AP || vif->mode == SPRDWL_MODE_P2P_GO) {
++		sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_AUTHENTICATED) |
++				BIT(NL80211_STA_FLAG_AUTHORIZED);
++		sinfo->sta_flags.set = sinfo->sta_flags.mask;
++		sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++		return 0;
++	}
++
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BYTES) |
+ 			 BIT(NL80211_STA_INFO_TX_PACKETS) |
+ 			 BIT(NL80211_STA_INFO_RX_BYTES) |
