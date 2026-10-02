@@ -1,5 +1,5 @@
 name: Verify and publish UWE5622 010-160
-# final retrigger after all six archive chunks are present
+# use exact split final chunk; ignore superseded archive.b64.06
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat .ci/a3a93c5/archive.b64.* | base64 -d > /tmp/opiz3.tar.gz
+          cat .ci/a3a93c5/archive.b64.01 .ci/a3a93c5/archive.b64.02 .ci/a3a93c5/archive.b64.03 .ci/a3a93c5/archive.b64.04 .ci/a3a93c5/archive.b64.05 .ci/a3a93c5/archive.b64.06a .ci/a3a93c5/archive.b64.06b | base64 -d > /tmp/opiz3.tar.gz
           echo "f0052bc872ded5a0f4bd6c29fac45ac7a460396cd5a5ac81a5d9c34ecf2b0572  /tmp/opiz3.tar.gz" | sha256sum -c -
           cp .ci/a3a93c5/blobs.txt /tmp/blobs.txt
 
