@@ -1612,3 +1612,155 @@ station/rate-control state
 ```
 
 Once a command-specific builder is identified, response structure offsets can be mapped directly against the current host driver structs.
+
+
+---
+
+## 25. Firmware command-name IDs are an internal namespace, not the host wire IDs
+
+The embedded firmware command/event table was parsed directly as `{name_ptr, id}` pairs.
+
+Examples:
+
+```text
+0x02 WIFI_CMD_GET_INFO
+0x06 WIFI_CMD_POWER_SAVE
+0x08 WIFI_CMD_SET_CHANNEL
+0x11 WIFI_CMD_GET_STATION
+0x29 WIFI_CMD_ADDBA_REQ
+0x38 WIFI_CMD_DELBA_REQ
+0x39 WIFI_CMD_LINK_STAT
+0x4c WIFI_CMD_RSSI_MONITOR
+0xb0 WIFI_EVENT_NEW_STATION
+0xf6 WIFI_EVENT_STA_LUT_INDICATION
+```
+
+The current host driver uses:
+
+```text
+0x01 WIFI_CMD_GET_INFO
+0x05 WIFI_CMD_POWER_SAVE
+0x07 WIFI_CMD_SET_CHANNEL
+0x10 WIFI_CMD_GET_STATION
+0x28 WIFI_CMD_ADDBA_REQ
+0x29 WIFI_CMD_DELBA_REQ
+0x38 WIFI_CMD_LLSTAT
+0x89 WIFI_EVENT_RSSI_MONITOR
+0xa0 WIFI_EVENT_NEW_STATION
+0xf5 WIFI_EVENT_STA_LUT_INDEX
+```
+
+The firmware names therefore show a systematic internal-enum shift and some preserved/reserved ranges.
+
+Crucially, inspection of host command construction shows that `sprdwl_ng` writes the host enum value directly into the wire header:
+
+```c
+hdr->cmd_id = cmd_id;
+```
+
+There is no +1/-1 translation in `__sprdwl_cmd_getbuf()`.
+
+The hardware already works for many commands using those host values.
+
+Therefore the embedded firmware table must **not** be treated as proof of the actual wire IDs.
+
+The safest current interpretation is:
+
+> the firmware string table exposes an internal/debug command namespace that differs from the host-visible wire protocol.
+
+This is important because patching host IDs to match the string table would likely break working commands.
+
+The previous protocol-skew concern remains historically interesting, but it is no longer a candidate for a direct fix.
+
+---
+
+## 26. HIF dispatcher is one layer above command-specific WLAN handlers
+
+The recovered routine around `0x00139ce2` handles generic HIF/WLAN request classes.
+
+It does not directly switch on `GET_STATION` or `LINK_STAT` command IDs.
+
+Instead it:
+
+1. validates an outer request class;
+2. walks request/link buffers;
+3. derives a WLAN/vdev-like context;
+4. invokes lower-level handlers;
+5. returns through a common response function near `0x001391d4`.
+
+This means the command-specific serializer is one layer below the HIF dispatcher.
+
+The current search therefore targets:
+
+```text
+wire cmd header
+    -> WLAN command dispatcher
+    -> command-specific handler
+    -> response buffer
+    -> generic HIF response path
+```
+
+rather than trying to identify `GET_STATION` directly inside the HIF outer switch.
+
+---
+
+## 27. Current-rate state is a real station-block field
+
+The station block field at approximately:
+
+```text
+station + 0xa5
+```
+
+has many direct reads/writes in the recovered automatic rate-control region.
+
+Confirmed accesses cluster around:
+
+```text
+0x00126d88
+0x0012752c
+0x00127558
+0x00127564
+0x001275b6
+0x001275e2
+0x00127602
+0x0012760a
+0x00127640
+0x00127650
+0x0012765a
+0x00127666
+0x00128ec8
+0x00129004
+0x001290bc
+0x00129226
+```
+
+The field is compared against, updated from, and fed back into the rate-selection state machine.
+
+It is therefore a high-confidence **rate-selection/current-rate state byte**, although its exact encoding is not yet proven.
+
+The next useful task is to find a reader of `station + 0xa5` outside the rate-control subsystem.
+
+Such a reader is a strong candidate for:
+
+- `GET_STATION` response construction;
+- `LINK_STAT` export;
+- telemetry/debug reporting.
+
+---
+
+## 28. Public-source search result
+
+Exact public GitHub code search for the internal firmware names:
+
+```text
+WIFI_CMD_PREPARE_CONNECT
+WIFI_CMD_LINK_STAT
+WIFI_EVENT_STA_LUT_INDICATION
+```
+
+returned no matching public source.
+
+Therefore the binary analysis is currently providing information that is not recoverable from a straightforward public source-code lookup.
+
+This increases the value of keeping the reverse-engineering notes and address map in-tree.
