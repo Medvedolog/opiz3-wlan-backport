@@ -1,0 +1,31 @@
+--- a/unisocwifi/Makefile
++++ b/unisocwifi/Makefile
+@@ -14,9 +14,13 @@ ifneq ($(UNISOC_WIFI_MAC_FILE),)
+ ccflags-y += -DCUSTOMIZE_WIFI_MAC_FILE=\"$(UNISOC_WIFI_MAC_FILE)\"
+ endif
+ 
+ ####add cflag######
++ifneq ($(OPENWRT_UWE5622_LEAN),y)
+ ccflags-y += -DIBSS_SUPPORT -DIBSS_RSN_SUPPORT
+ ccflags-y += -DNAN_SUPPORT
+ ccflags-y += -DRTT_SUPPORT
++else
++ccflags-y += -DOPENWRT_UWE5622_LEAN
++endif
+ ccflags-y += -DACS_SUPPORT -DRX_HW_CSUM
+ ccflags-y += -DWMMAC_WFA_CERTIFICATION
+ ccflags-y += -DCOMPAT_SAMPILE_CODE
+@@ -36,12 +40,14 @@ sprdwl_ng-objs += main.o cfg80211.o txrx.o cmdevt.o npi.o msg.o work.o vendor.o
+ 				  wl_intf.o qos.o dbg_ini_util.o reg_domain.o
+ sprdwl_ng-objs += defrag.o
++ifneq ($(OPENWRT_UWE5622_LEAN),y)
+ sprdwl_ng-objs += ibss.o
+ sprdwl_ng-objs += nan.o
++sprdwl_ng-objs += rtt.o
++endif
+ sprdwl_ng-objs += tracer.o
+ sprdwl_ng-objs += rf_marlin3.o
+-sprdwl_ng-objs += rtt.o
+ sprdwl_ng-objs += api_version.o
+ sprdwl_ng-objs += rnd_mac_addr.o
+ sprdwl_ng-objs += debug.o
