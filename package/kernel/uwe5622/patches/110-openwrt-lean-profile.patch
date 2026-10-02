@@ -15,10 +15,17 @@
  ccflags-y += -DACS_SUPPORT -DRX_HW_CSUM
  ccflags-y += -DWMMAC_WFA_CERTIFICATION
  ccflags-y += -DCOMPAT_SAMPILE_CODE
-@@ -36,12 +40,14 @@ sprdwl_ng-objs += main.o cfg80211.o txrx.o cmdevt.o npi.o msg.o work.o vendor.o
+@@ -32,16 +36,19 @@ ccflags-y += -DCP2_RESET_SUPPORT
+ endif
+ 
+ #######add .o file#####
+-sprdwl_ng-objs += main.o cfg80211.o txrx.o cmdevt.o npi.o msg.o work.o vendor.o \
++sprdwl_ng-objs += main.o cfg80211.o txrx.o cmdevt.o msg.o work.o vendor.o \
+ 				  tcp_ack.o mm.o reorder.o wl_core.o tx_msg.o rx_msg.o \
  				  wl_intf.o qos.o dbg_ini_util.o reg_domain.o
  sprdwl_ng-objs += defrag.o
 +ifneq ($(OPENWRT_UWE5622_LEAN),y)
++sprdwl_ng-objs += npi.o
  sprdwl_ng-objs += ibss.o
  sprdwl_ng-objs += nan.o
 +sprdwl_ng-objs += rtt.o
@@ -29,3 +36,35 @@
  sprdwl_ng-objs += api_version.o
  sprdwl_ng-objs += rnd_mac_addr.o
  sprdwl_ng-objs += debug.o
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -16,7 +16,9 @@
+  */
+ 
+ #include "sprdwl.h"
++#ifndef OPENWRT_UWE5622_LEAN
+ #include "npi.h"
++#endif
+ #include "cfg80211.h"
+ #include "cmdevt.h"
+ #include "txrx.h"
+@@ -1608,7 +1610,9 @@ int sprdwl_core_init(struct sprdwl_priv *priv)
+ #endif
+ 
+ 	qos_enable(1);
++#ifndef OPENWRT_UWE5622_LEAN
+ 	sprdwl_init_npi();
++#endif
+ 	ret = register_inetaddr_notifier(&sprdwl_inetaddr_cb);
+ 	if (ret)
+ 		wl_err("%s failed to register inetaddr notifier(%d)!\n",
+@@ -1639,7 +1643,9 @@ int sprdwl_core_deinit(struct sprdwl_priv *priv)
+ 	unregister_inetaddr_notifier(&sprdwl_inetaddr_cb);
+ 	if (priv->fw_capa & SPRDWL_CAPA_NS_OFFLOAD)
+ 		unregister_inet6addr_notifier(&sprdwl_inet6addr_cb);
++#ifndef OPENWRT_UWE5622_LEAN
+ 	sprdwl_deinit_npi();
++#endif
+ 	qos_enable(0);
+ 	sprdwl_del_all_ifaces(priv);
+ 	sprdwl_vendor_deinit(priv->wiphy);
