@@ -64,6 +64,44 @@ It contains useful historical fixes such as:
 
 These are references only. Before importing any DeepAQ patch, verify that the equivalent is not already present in the pinned Armbian source.
 
+### Scope relative to Armbian and earlier community ports
+
+This project is downstream of, and dependent on, substantial community work. Its scope is different rather than universally larger.
+
+**Armbian's scope is broader.** The current `armbian/uwe5622` repository is a community-maintained out-of-tree driver for multiple ARM SBCs and modern kernel releases. It carries the vendor WCN/WLAN stack forward across kernel API changes and provides the baseline used by this OpenWrt package. That breadth, multi-board maintenance and continuing kernel compatibility work are outside the scope of this repository.
+
+**Earlier Orange Pi Zero 3 ports concentrated on bring-up.** Public Zero 3 Linux 6.x work describes the port mainly as adapting the vendor 5.4 driver to a newer kernel, fixing DTS/wiring and replacing or re-exporting changed kernel APIs while deliberately keeping the vendor driver as intact as practical. That work established an important proof that the hardware could operate outside the original vendor kernel.
+
+**The present repository is narrower but deeper in one deployment model:** Orange Pi Zero 3 / AW859A / UWE5622 as an OpenWrt router radio. The work therefore includes several layers that a conventional kernel port does not have to solve:
+
+1. OpenWrt cfg80211/mac80211-backport ABI integration rather than only mainline-kernel compatibility;
+2. AP/STA semantics visible through nl80211, `iw`, iwinfo, LuCI and hostapd;
+3. honest station accounting, including removal of firmware/interface values that cannot be attributed to an AP peer;
+4. host-side per-LUT RX/TX instrumentation and TX-path ownership/concurrency fixes;
+5. reproducible SDK full/lean builds, image builds and generated-DTB validation;
+6. preservation of wired manageability through delayed WLAN loading while early SDIO probe remains unsafe;
+7. binary reverse engineering of `wcnmodem.bin`, including the firmware command/event ABI, station-record layout and rate-control state;
+8. investigation of live CP-memory observation as a possible way to recover AP per-peer rate without modifying proprietary firmware.
+
+A useful way to describe the engineering depth is:
+
+| Layer | Typical result |
+|---|---|
+| Board bring-up | WLAN powers up and SDIO enumerates |
+| Kernel port | Vendor driver builds and loads on a newer kernel |
+| OpenWrt integration | cfg80211/nl80211/AP/STA work with normal OpenWrt tooling |
+| Runtime correctness | station reporting, TX/RX ownership, recovery and long-run behavior are corrected and instrumented |
+| Firmware/protocol RE | undocumented host/firmware behavior and limits are recovered and verified |
+| CP-state recovery | missing telemetry is reconstructed from internal firmware state without changing the firmware |
+
+The project is currently operating mainly in the fourth and fifth layers, with exploratory work beginning on the sixth. This classification is descriptive, not a claim that the project supersedes Armbian: Armbian remains the wider driver-maintenance effort and the source baseline.
+
+References:
+
+- Armbian UWE5622 driver: https://github.com/armbian/uwe5622
+- Orange Pi Zero 3 Linux 6.x community port: https://github.com/Doct2O/orangepi-zero3-mainline-linux-wifi
+- Firmware reverse-engineering notes: `WCNMODEM-REVERSE-ENGINEERING.md`
+
 ## 2. High-value finding: the WLAN build enables substantial unused functionality unconditionally
 
 The current upstream `unisocwifi/Makefile` unconditionally defines:
