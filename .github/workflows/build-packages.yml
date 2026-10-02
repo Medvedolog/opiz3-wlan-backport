@@ -68,6 +68,7 @@ jobs:
       - name: Pasang paket uwe5622
         run: |
           cp -r package/kernel/uwe5622 sdk/package/kernel/
+          mkdir -p sdk/package/firmware
           cp -r package/firmware/uwe5622-firmware sdk/package/firmware/
           chmod +x sdk/package/kernel/uwe5622/files/sprdwl-delay
           echo "patch driver yang diterapkan:"
