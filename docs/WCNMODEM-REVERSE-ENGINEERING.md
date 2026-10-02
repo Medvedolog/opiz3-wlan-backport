@@ -952,3 +952,217 @@ struct wifi_rate_stat {
 The firmware table is not byte-for-byte the same format, but its existence strongly supports the hypothesis that the richer Android/vendor per-peer reporting path was designed around firmware-maintained rate buckets and was lost or left unwired in this community driver generation.
 
 The next task is to determine the semantics of the two 32-bit counters and the first 32-bit rate descriptor/key.
+
+
+---
+
+## 16. Recovered per-peer TX quality statistics inside firmware
+
+A deeper Thumb-2 pass located the firmware routine referenced by the embedded function name:
+
+```text
+ar_update_tx_statistic_info
+```
+
+The function begins at approximately:
+
+```text
+0x001288ca
+```
+
+and is called directly from:
+
+```text
+0x00132ae4
+```
+
+inside a TX completion/status path.
+
+The call is gated by an event/type value equal to `3`, which is consistent with this being one specific TX completion/status case rather than generic station maintenance.
+
+### 16.1 Same 0x228-byte station object
+
+The routine resolves the station object with the same index arithmetic found in `update_sta_lut_data`:
+
+```text
+station_index -> index * 0x228
+record_base   -> table_base + index * 0x228 + 0x194
+```
+
+This independently confirms that the structure is a shared per-peer object used by both station/LUT setup and TX-rate/statistics logic.
+
+### 16.2 TX outcome counters
+
+The routine keeps a four-counter block near the end of each 0x228-byte station record:
+
+| Record offset | Size | Observed behavior |
+|---:|---:|---|
+| `+0x21a` | u16 | total sample counter |
+| `+0x21c` | u16 | outcome bucket 0 counter |
+| `+0x21e` | u16 | outcome bucket 1 counter |
+| `+0x220` | u16 | outcome bucket 2 counter |
+| `+0x218` | u8 | distribution/EWMA initialized flag |
+| `+0x222` | u8 | smoothed percentage bucket 0 |
+| `+0x223` | u8 | smoothed percentage bucket 1 |
+| `+0x224` | u8 | smoothed percentage bucket 2 |
+
+The TX status path extracts:
+
+```text
+(input + 0x1f) & 0x03
+```
+
+and uses values `0`, `1`, and `2` to select one of the three outcome counters.
+
+The total counter at `+0x21a` is incremented alongside those outcome-specific counters.
+
+The exact semantic names of the three values are not yet proven, so they should currently be called **TX outcome buckets**, not success/retry/fail.
+
+### 16.3 100-sample update window
+
+The routine checks the total counter modulo 100.
+
+At the end of a 100-sample window it calculates:
+
+```text
+bucket_percent = 100 * bucket_count / total_count
+```
+
+for all three buckets.
+
+On the first completed window, those percentages are stored directly into:
+
+```text
++0x222
++0x223
++0x224
+```
+
+and `+0x218` is set to 1.
+
+On later windows the routine applies an EWMA:
+
+```text
+smoothed = (75 * old + 25 * new) / 100
+```
+
+The exact instruction sequence proves the weights:
+
+```text
+new * 25
+old * 75
+sum / 100
+```
+
+After the update, the counters at:
+
+```text
++0x21a
++0x21c
++0x21e
++0x220
+```
+
+are reset to zero for the next window.
+
+### 16.4 Why this matters
+
+This is the first recovered **true per-peer runtime quality statistic** in the closed firmware.
+
+It is not a global radio metric. The calculation is performed against the same LUT-indexed 0x228-byte station object used by association logic.
+
+Therefore firmware internally maintains, per client:
+
+- rolling TX outcome distribution;
+- 100-sample raw counters;
+- three smoothed percentage values;
+- state indicating whether the EWMA is initialized.
+
+This is strong evidence that richer per-client rate-control telemetry exists inside firmware even though the current Linux driver exports only MAC/HT/VHT state through the LUT event.
+
+### 16.5 Relationship to rate control
+
+The same firmware image contains the function-name string:
+
+```text
+0find_rate0_idx_by_goodput
+```
+
+immediately adjacent in the internal symbol-name area to:
+
+```text
+ar_update_tx_statistic_info
+```
+
+This strongly suggests the recovered counters belong to the adaptive-rate/goodput algorithm.
+
+The exact mapping of:
+
+```text
+bucket 0
+bucket 1
+bucket 2
+```
+
+to PHY outcomes remains to be resolved from the TX descriptor/status bit definitions before they are exposed to userspace with semantic names.
+
+### 16.6 Direct call site
+
+The only direct call found so far is:
+
+```text
+0x00132ae4 -> 0x001288ca
+```
+
+At that point firmware passes:
+
+```text
+r0 = interface/context index
+r1 = TX status/descriptor-like object
+```
+
+The caller reaches this routine only for one TX event/type branch.
+
+This gives the next reverse-engineering target: decode the input object fields around offsets `0x1e` and `0x1f` and identify the enum represented by the low two bits.
+
+---
+
+## 17. Practical host-side consequence
+
+The per-peer statistics problem is now narrower.
+
+We no longer need to prove that firmware tracks per-client TX quality; it does.
+
+The remaining problem is finding a host-visible path to those values.
+
+Preferred order:
+
+1. locate an existing firmware command/event that serializes the 0x228-byte station state or a subset of it;
+2. inspect the firmware-side implementation of `WIFI_CMD_LINK_STAT`;
+3. inspect any NPI/debug command that reads these offsets;
+4. only if no readout exists, consider a minimal firmware patch or a host-assisted indirect read mechanism.
+
+A firmware patch is **not** the first choice.
+
+The desirable OpenWrt implementation remains:
+
+```text
+firmware existing telemetry
+    -> sprdwl host command/event
+    -> peer_entry / station_info
+    -> cfg80211 dump_station
+    -> iw / iwinfo / LuCI
+```
+
+### Confidence
+
+| Finding | Confidence |
+|---|---|
+| `ar_update_tx_statistic_info` located at ~0x001288ca | High |
+| uses same LUT-indexed 0x228 station object | High |
+| +0x21a is total window counter | High |
+| +0x21c/+0x21e/+0x220 are three TX outcome counters | High |
+| +0x222/+0x223/+0x224 are smoothed percentages | High |
+| EWMA weights are 75% old / 25% new | High |
+| low two bits of input+0x1f select the three buckets | High |
+| semantic names of the buckets | Not yet proven |
