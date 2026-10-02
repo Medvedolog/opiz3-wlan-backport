@@ -1701,3 +1701,97 @@ Therefore:
 - `LLSTAT`, a LUT-indexed event, or another firmware callback remains the most promising route for true AP per-peer data.
 
 The reverse engineering has nevertheless recovered the exact firmware-side rate encoding path needed to interpret/export current-rate state correctly.
+
+
+---
+
+## 35. LLSTAT firmware GET path recovered: response is aggregate-only
+
+The real wire-command path for host `WIFI_CMD_LLSTAT` was identified in the firmware.
+
+A dispatcher beginning at approximately:
+
+```text
+0x001423d8
+```
+
+examines the first byte of the command payload (the LLSTAT subcommand) and returns through the common command-response helper with:
+
+```asm
+movs r1, #0x38
+b.w  0x002073a4
+```
+
+The value `0x38` is the actual host-visible wire command ID used by the current driver for `WIFI_CMD_LLSTAT`.
+
+This independently confirms that the embedded string-table IDs are not the wire IDs.
+
+### GET branch
+
+The GET branch reaches:
+
+```text
+0x0015ef86
+```
+
+That routine updates/captures the current aggregate statistics and then sends exactly:
+
+```text
+0x60 = 96 bytes
+```
+
+to the host:
+
+```asm
+movs r2, #0x60
+mov  r1, stats_base
+mov  r0, ctx
+bl   0x00207a84
+```
+
+The current host-side response structure is:
+
+```c
+struct sprdwl_llstat_data {
+    int rssi_mgmt;
+    u32 bcn_rx_cnt;
+    struct sprdwl_wmm_ac_stat ac[WIFI_AC_MAX];
+    u32 on_time;
+    u32 on_time_scan;
+    u64 radio_tx_time;
+    u64 radio_rx_time;
+};
+```
+
+For `WIFI_AC_MAX == 4`, the total size is:
+
+```text
+4 + 4 + (4 * 16) + 4 + 4 + 8 + 8 = 96 bytes = 0x60
+```
+
+So the firmware response size matches `sizeof(struct sprdwl_llstat_data)` exactly.
+
+### Consequence
+
+For this firmware build, LLSTAT GET is **aggregate-only**.
+
+It does not serialize:
+
+- `wifi_peer_info[]`;
+- per-peer MAC addresses;
+- per-peer `wifi_rate_stat` arrays;
+- the 0x228-byte station objects;
+- the 24 internal per-rate buckets.
+
+Therefore the rich peer structures present in the Linux vendor API are not backed by this LLSTAT response path in this firmware revision.
+
+This closes the hypothesis that the missing AP client statistics can be recovered simply by parsing a larger LLSTAT response.
+
+The remaining promising routes are now narrower:
+
+1. a dedicated station/LUT event or callback;
+2. another command not currently consumed by the Linux driver;
+3. adding a new host-visible exporter backed by the already-recovered per-station firmware state;
+4. as a last resort, firmware modification.
+
+The immediate next reverse-engineering target is the producer of `WIFI_EVENT_STA_LUT_INDEX/INDICATION` and any neighboring event path that may already export rate/signal fields.
