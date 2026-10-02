@@ -12,6 +12,16 @@ Goal: make the onboard AW859A / UNISOC UWE5622 WLAN on Orange Pi Zero 3 behave l
 - reproducible package and image builds
 - no edits inside `build_dir`
 
+## Project scope
+
+This repository builds on the community UWE5622 work rather than replacing it.
+
+- **Armbian** maintains a broad, community-supported out-of-tree UWE5622 driver across multiple boards, transports and modern kernel releases. That work provides the current driver baseline used here.
+- Earlier Orange Pi / GitHub ports, such as the Zero 3 Linux 6.x work, primarily solved board bring-up, DTS and vendor-driver API compatibility while keeping the original BSP code largely intact.
+- **This project is narrower but deeper:** it focuses on making one difficult combination — Orange Pi Zero 3 + AW859A/UWE5622 + OpenWrt 25.12 — behave like a normal OpenWrt radio. Work therefore extends beyond kernel API porting into cfg80211/nl80211 semantics, AP station accounting, SDIO TX/RX correctness, delayed-probe safety, 5 GHz/VHT validation and reverse engineering of the closed Marlin3 firmware/host protocol.
+
+The current effort should be treated as a small focused R&D project around a closed vendor radio stack, not merely as a kernel-version backport. See `docs/UWE5622-DRIVER-AUDIT.md` and `docs/WCNMODEM-REVERSE-ENGINEERING.md` for the evidence and current limitations.
+
 ## Development strategy
 
 1. Reproduce a known buildable UWE5622 OpenWrt integration as a control baseline.
