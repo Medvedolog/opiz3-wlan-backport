@@ -266,8 +266,8 @@ jobs:
             exit 1
           fi
           printf '  OK      patch100 SET_CHANNEL marker absent (control)\n'
-          strings "$KO" | grep -q 'AP WIFI_CMD_START_AP' && \
-            printf '  OK      AP WIFI_CMD_START_AP\n' || exit 1
+          strings "$KO" | grep -q 'sprdwl_start_ap' && \
+            printf '  OK      sprdwl_start_ap present\n' || exit 1
 
           echo "== Footstrap default payload =="
           test -x files/etc/uci-defaults/zz-opiz3-footstrap-default
