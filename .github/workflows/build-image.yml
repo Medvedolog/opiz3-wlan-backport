@@ -134,7 +134,8 @@ jobs:
           CONFIG_PACKAGE_kmod-mt7601u=y
           CONFIG_PACKAGE_kmod-mt76x0u=y
           CONFIG_PACKAGE_kmod-mt76x2u=y
-          CONFIG_PACKAGE_kmod-mt7663u=y
+          # MT7663U is not selectable on this target in OpenWrt 25.12.5:
+          # its hidden mt7615-common dependency is gated by @PCI_SUPPORT.
           CONFIG_PACKAGE_kmod-mt7921u=y
           CONFIG_PACKAGE_kmod-mt7925u=y
           CONFIG_PACKAGE_kmod-rt2800-usb=y
@@ -256,7 +257,7 @@ jobs:
             kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis \
             kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan \
             kmod-usb-net-cdc-subset kmod-mii \
-            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u kmod-mt7663u \
+            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u \
             kmod-mt7921u kmod-mt7925u kmod-rt2800-usb kmod-rt73-usb \
             kmod-rtl8xxxu kmod-rtl8192cu kmod-rtw88-8821au kmod-rtw88-8812au \
             kmod-rtw88-8814au kmod-rtw88-8821cu kmod-rtw88-8822bu \
@@ -320,7 +321,7 @@ jobs:
             kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179 \
             kmod-usb-net-smsc95xx kmod-usb-net-lan78xx \
             kmod-usb-net-dm9601-ether kmod-usb-net-sr9700 \
-            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u kmod-mt7663u \
+            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u \
             kmod-mt7921u kmod-mt7925u kmod-rt2800-usb kmod-rt73-usb \
             kmod-rtl8xxxu kmod-rtl8192cu kmod-rtw88-8821au kmod-rtw88-8812au \
             kmod-rtw88-8814au kmod-rtw88-8821cu kmod-rtw88-8822bu \
