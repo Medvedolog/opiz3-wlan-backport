@@ -16,6 +16,11 @@ at 0x100000 is loaded at 0x40500000) and prints the decoded rate of each
 non-empty station block, followed by a raw hex dump for locating the
 station MAC.
 
+The block holds no MAC: 0x1281fe, which initialises it when a station
+is added, clears it and fills only rate-control fields; the MAC lives in
+the ROM station structure. Since the index is the hardware LUT, each
+line also shows the driver's peer_entry[lut] MAC as "lut-peer".
+
 RSSI: 0x1539b0(lut) copies the MAC's per-LUT TX statistics (signed sum
 at +0x40, count at +0x44), 0x128554 accumulates them into the station
 block and 0x126d54 keeps a 50/50-smoothed signed average at +0x3a5
@@ -37,7 +42,7 @@ the table is read only after the pointer at 0x17d690 is found to hold
  #include <linux/of.h>
  #include "sprdwl.h"
  #include "wl_intf.h"
-@@ -531,6 +532,161 @@ static const struct file_operations peer
+@@ -531,6 +532,166 @@ static const struct file_operations peer
  	.release = single_release,
  };
  
@@ -76,9 +81,11 @@ the table is read only after the pointer at 0x17d690 is found to hold
 +
 +static DEFINE_MUTEX(cp_sta_lock);
 +
-+static void cp_sta_show_one(struct seq_file *s, const u8 *tbl, int idx)
++static void cp_sta_show_one(struct seq_file *s, struct sprdwl_intf *intf,
++			    const u8 *tbl, int idx)
 +{
 +	const u8 *sta = tbl + idx * CP_STA_SIZE;
++	struct sprdwl_peer_entry *peer = &intf->peer_entry[idx];
 +	unsigned int mode = sta[0x23d], ri, off, code, doff;
 +	const u8 *desc;
 +
@@ -124,6 +131,9 @@ the table is read only after the pointer at 0x17d690 is found to hold
 +		   sta[0x241] == 2 ? 80 : sta[0x241] == 1 ? 40 : 20);
 +	if (idx * CP_STA_SIZE + 0x3a5 < CP_STA_TABLE_LEN && sta[0x3a4] == 1)
 +		seq_printf(s, " rssi %d", (s8)sta[0x3a5]);
++	/* the firmware index is the hardware LUT: show the driver's peer */
++	if (peer->ctx_id != 0xff)
++		seq_printf(s, " lut-peer %pM", peer->tx.da);
 +	seq_putc(s, '\n');
 +}
 +
@@ -168,7 +178,7 @@ the table is read only after the pointer at 0x17d690 is found to hold
 +
 +		if (!memchr_inv(sta, 0, CP_STA_SIZE))
 +			continue;
-+		cp_sta_show_one(s, tbl, i);
++		cp_sta_show_one(s, intf, tbl, i);
 +	}
 +
 +	/* raw dump for further reverse engineering (MAC, RSSI offsets) */
@@ -199,7 +209,7 @@ the table is read only after the pointer at 0x17d690 is found to hold
  static int rx_desc_dump_open(struct inode *inode, struct file *file)
  {
  	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
-@@ -581,6 +737,8 @@ static void sprdwl_debugfs_init(struct s
+@@ -581,6 +742,8 @@ static void sprdwl_debugfs_init(struct s
  			    &peer_stats_fops);
  	debugfs_create_file("rx_desc_dump", S_IRUSR, sprdwl_debug_root, NULL,
  			    &rx_desc_dump_fops);
