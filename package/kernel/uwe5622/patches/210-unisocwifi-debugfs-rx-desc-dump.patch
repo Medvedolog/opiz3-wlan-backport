@@ -1,0 +1,188 @@
+Subject: [PATCH] unisocwifi: debugfs rx_desc_dump of the RX descriptor area
+
+Diagnostics for per-station RSSI/rate in AP mode. Read-only.
+
+The firmware command interface has no per-peer RSSI or rate in AP mode
+(GET_STATION, 0x143c0c, resolves no peer for an AP/GO vif). On PCIe the
+CP prefixes each RX MSDU with struct rx_mh_desc, which carries data_rate,
+rss1/rss2, snr and phy_rx_mode from the PA RX descriptor; on SDIO that
+header is absent and the buffer is sdiohal_puh + struct rx_msdu_desc +
+frame. The only place left for such data is the gap of
+msdu_offset - sizeof(struct rx_msdu_desc) bytes, if the firmware leaves
+one.
+
+Record the msdu_offset range over all data frames, and keep raw copies of
+the first 64 bytes (descriptor, gap, start of frame) of every 64th frame
+with its station LUT. /sys/kernel/debug/sprdwl_debug/rx_desc_dump prints
+them split into descriptor | gap | frame.
+
+--- a/unisocwifi/txrx.c
++++ b/unisocwifi/txrx.c
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include <linux/skbuff.h>
++#include <linux/seq_file.h>
+ 
+ #include "sprdwl.h"
+ #include "txrx.h"
+@@ -140,6 +141,109 @@ void sprdwl_rx_send_cmd_process(struct s
+ 	}
+ }
+ 
++/*
++ * Diagnostics: does the CP put anything between the RX descriptor and the
++ * 802.3 header?  On PCIe, struct rx_mh_desc carries rate/RSSI/SNR per
++ * frame; the SDIO path has no such header, so the only place left is the
++ * gap of msdu_offset - sizeof(struct rx_msdu_desc) bytes.  Record the
++ * msdu_offset range and keep raw copies of every 64th data frame's
++ * descriptor area for debugfs rx_desc_dump.
++ */
++#define RX_DESC_SAMPLES		16
++#define RX_DESC_SAMPLE_LEN	64
++#define RX_DESC_SAMPLE_EVERY	64
++
++struct rx_desc_sample {
++	u8 lut_valid;
++	u8 lut;
++	u8 ctx_id;
++	u8 offset;
++	u16 len;
++	u16 copied;
++	u8 data[RX_DESC_SAMPLE_LEN];
++};
++
++static DEFINE_SPINLOCK(rx_desc_lock);
++static struct rx_desc_sample rx_desc_samples[RX_DESC_SAMPLES];
++static unsigned int rx_desc_head;
++static unsigned long rx_desc_frames;
++static u8 rx_desc_off_min = 0xff;
++static u8 rx_desc_off_max;
++
++static void rx_desc_record(struct sk_buff *skb,
++			   const struct rx_msdu_desc *desc)
++{
++	struct rx_desc_sample *sample;
++	unsigned int n;
++
++	spin_lock_bh(&rx_desc_lock);
++	if (desc->msdu_offset < rx_desc_off_min)
++		rx_desc_off_min = desc->msdu_offset;
++	if (desc->msdu_offset > rx_desc_off_max)
++		rx_desc_off_max = desc->msdu_offset;
++	if (rx_desc_frames++ % RX_DESC_SAMPLE_EVERY == 0) {
++		sample = &rx_desc_samples[rx_desc_head++ % RX_DESC_SAMPLES];
++		/* skb->len is still 0 here; the buffer holds offset + len */
++		n = min_t(unsigned int, RX_DESC_SAMPLE_LEN,
++			  msdu_total_len((struct rx_msdu_desc *)desc));
++		n = min_t(unsigned int, n, skb_tailroom(skb));
++		sample->lut_valid = desc->sta_lut_valid;
++		sample->lut = desc->sta_lut_index;
++		sample->ctx_id = desc->ctx_id;
++		sample->offset = desc->msdu_offset;
++		sample->len = desc->msdu_len;
++		sample->copied = n;
++		memcpy(sample->data, skb->data, n);
++	}
++	spin_unlock_bh(&rx_desc_lock);
++}
++
++int sprdwl_rx_desc_dump_show(struct seq_file *s, void *p)
++{
++	struct rx_desc_sample *copy;
++	unsigned long frames;
++	unsigned int head, i, n;
++	u8 off_min, off_max;
++
++	copy = kmalloc(sizeof(rx_desc_samples), GFP_KERNEL);
++	if (!copy)
++		return -ENOMEM;
++
++	spin_lock_bh(&rx_desc_lock);
++	memcpy(copy, rx_desc_samples, sizeof(rx_desc_samples));
++	head = rx_desc_head;
++	frames = rx_desc_frames;
++	off_min = rx_desc_off_min;
++	off_max = rx_desc_off_max;
++	spin_unlock_bh(&rx_desc_lock);
++
++	seq_printf(s, "frames: %lu sampled: every %d\n", frames,
++		   RX_DESC_SAMPLE_EVERY);
++	seq_printf(s, "sizeof(rx_msdu_desc): %zu msdu_offset min: %u max: %u\n",
++		   sizeof(struct rx_msdu_desc), off_min, off_max);
++	seq_puts(s, "v lut ctx off len | descriptor | gap | frame\n");
++
++	n = min_t(unsigned int, head, RX_DESC_SAMPLES);
++	for (i = 0; i < n; i++) {
++		struct rx_desc_sample *e =
++			&copy[(head - n + i) % RX_DESC_SAMPLES];
++		unsigned int dlen = min_t(unsigned int, e->copied,
++					  sizeof(struct rx_msdu_desc));
++		unsigned int glen = 0;
++
++		if (e->offset > dlen)
++			glen = min_t(unsigned int, e->offset, e->copied) - dlen;
++
++		seq_printf(s, "%u %3u %3u %3u %4u | %*phN | %*phN | %*phN\n",
++			   e->lut_valid, e->lut, e->ctx_id, e->offset, e->len,
++			   dlen, e->data, glen, e->data + dlen,
++			   e->copied - dlen - glen, e->data + dlen + glen);
++	}
++
++	kfree(copy);
++	return 0;
++}
++
+ void sprdwl_rx_skb_process(struct sprdwl_priv *priv, struct sk_buff *skb)
+ {
+ 	struct sprdwl_vif *vif = NULL;
+@@ -187,6 +291,7 @@ void sprdwl_rx_skb_process(struct sprdwl
+ 	lut = msdu_desc->sta_lut_index;
+ 	ctx_id = msdu_desc->ctx_id;
+ 	msdu_len = msdu_desc->msdu_len;
++	rx_desc_record(skb, msdu_desc);
+ 	skb_reserve(skb, msdu_desc->msdu_offset);
+ 	skb_put(skb, msdu_desc->msdu_len);
+ 
+--- a/unisocwifi/txrx.h
++++ b/unisocwifi/txrx.h
+@@ -39,6 +39,8 @@ unsigned short sprdwl_rx_data_process(st
+ unsigned short sprdwl_rx_event_process(struct sprdwl_priv *priv, u8 *msg);
+ unsigned short sprdwl_rx_rsp_process(struct sprdwl_priv *priv, u8 *msg);
+ void sprdwl_rx_skb_process(struct sprdwl_priv *priv, struct sk_buff *pskb);
++struct seq_file;
++int sprdwl_rx_desc_dump_show(struct seq_file *s, void *p);
+ void sprdwl_rx_send_cmd_process(struct sprdwl_priv *priv, void *data, int len,
+ 				unsigned char id, unsigned char ctx_id);
+ #if defined FPGA_LOOPBACK_TEST
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -531,6 +531,19 @@ static const struct file_operations peer
+ 	.release = single_release,
+ };
+ 
++static int rx_desc_dump_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
++}
++
++static const struct file_operations rx_desc_dump_fops = {
++	.owner = THIS_MODULE,
++	.open = rx_desc_dump_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
+ static void sprdwl_debugfs(void *spdev, struct dentry *dir)
+ {
+ 	struct sprdwl_intf *intf;
+@@ -566,6 +579,8 @@ static void sprdwl_debugfs_init(struct s
+ 			    &tx_stats_fops);
+ 	debugfs_create_file("peer_stats", S_IRUSR, sprdwl_debug_root, intf,
+ 			    &peer_stats_fops);
++	debugfs_create_file("rx_desc_dump", S_IRUSR, sprdwl_debug_root, NULL,
++			    &rx_desc_dump_fops);
+ }
+ 
+ static void sprdwl_debugfs_deinit(void)
