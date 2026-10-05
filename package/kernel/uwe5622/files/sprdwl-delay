@@ -37,6 +37,7 @@ start_service() {
 		 fi; \
 		 i=0; while [ ! -e /sys/class/ieee80211/phy0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done; \
 		 [ -e /sys/class/ieee80211/phy0 ] || exit 1; \
+		 /usr/sbin/uwe5622-clamp-htmode; \
 		 /sbin/wifi up radio0'
 	procd_set_param stdout 1
 	procd_set_param stderr 1

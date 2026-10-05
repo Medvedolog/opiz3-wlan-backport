@@ -1,0 +1,37 @@
+#!/bin/sh
+# Narrow wireless.radio0.htmode to the width the sprdwl_ng driver
+# advertises (module parameters max_bw_2g / max_bw_5g, see
+# /etc/uwe5622.options). LuCI still lists VHT40/VHT80 because iwinfo
+# derives them from the VHT capability alone, and hostapd fails to start
+# on a width cfg80211 refuses, so fix the config instead of leaving the
+# AP down. Called by /etc/init.d/sprdwl-delay before "wifi up".
+
+P=/sys/module/sprdwl_ng/parameters
+max2=$(cat "$P/max_bw_2g" 2>/dev/null || echo 20)
+max5=$(cat "$P/max_bw_5g" 2>/dev/null || echo 20)
+
+for radio in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+	ht=$(uci -q get "wireless.$radio.htmode") || continue
+	band=$(uci -q get "wireless.$radio.band")
+	case "$band" in
+		2g) max=$max2 ;;
+		5g) max=$max5 ;;
+		*) continue ;;
+	esac
+	[ "$max" -ge 80 ] && max=80
+	[ "$max" -ge 40 ] && [ "$max" -lt 80 ] && max=40
+	[ "$max" -lt 40 ] && max=20
+
+	prefix=${ht%%[0-9]*}
+	width=${ht#"$prefix"}
+	width=${width%[+-]}
+	case "$width" in
+		20|40|80|160) ;;
+		*) continue ;;
+	esac
+	[ "$width" -le "$max" ] && continue
+
+	uci set "wireless.$radio.htmode=$prefix$max"
+	uci commit wireless
+	logger -t uwe5622 "$radio: htmode $ht -> $prefix$max (driver max ${max} MHz on $band)"
+done

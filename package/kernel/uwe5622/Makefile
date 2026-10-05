@@ -63,6 +63,8 @@ define KernelPackage/uwe5622/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/sprdwl-delay $(1)/etc/init.d/sprdwl-delay
 	$(INSTALL_DATA) ./files/uwe5622.options $(1)/etc/uwe5622.options
+	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_BIN) ./files/uwe5622-clamp-htmode $(1)/usr/sbin/uwe5622-clamp-htmode
 endef
 
 define Build/Configure
