@@ -181,7 +181,7 @@ jobs:
           CONFIG_PACKAGE_ca-bundle=y
           CONFIG_PACKAGE_coreutils-base64=y
           CONFIG_PACKAGE_bind-dig=y
-          CONFIG_PACKAGE_nftables=y
+          CONFIG_PACKAGE_nftables-json=y
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-nf-tproxy=y
           CONFIG_PACKAGE_kmod-nft-socket=y
@@ -269,7 +269,7 @@ jobs:
             kmod-amneziawg amneziawg-tools luci-app-amneziawg \
             kmod-wireguard wireguard-tools luci-proto-wireguard \
             kmod-tun \
-            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables \
+            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables-json \
             kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat \
             kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci \
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
@@ -333,7 +333,7 @@ jobs:
             kmod-amneziawg amneziawg-tools luci-app-amneziawg \
             kmod-wireguard wireguard-tools luci-proto-wireguard \
             kmod-tun \
-            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables \
+            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables-json \
             kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat \
             kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci \
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
