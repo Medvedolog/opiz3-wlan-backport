@@ -368,13 +368,11 @@ jobs:
             printf '  OK      patch230 cp_sta_table reader present\n' || exit 1
 
           echo "== iwinfo UWE5622 hardware name =="
-          # the unpacked source dir, not an ipkg/install copy of devices.txt
-          IWSRC=$(find build_dir -name iwinfo_nl80211.c -path '*/iwinfo-*' | head -1)
-          test -n "$IWSRC"
-          IWSRC=$(dirname "$IWSRC")
-          echo "iwinfo source: $IWSRC"
-          grep -q 'device/modalias' "$IWSRC/iwinfo_nl80211.c"
-          grep -q '"platform:unisoc_wifi"' "$IWSRC/devices.txt"
+          # check what was built, not where the source happened to be unpacked
+          ROOT=$(find build_dir -maxdepth 2 -type d -name 'root-*' | head -1)
+          test -n "$ROOT"
+          grep -q '"platform:unisoc_wifi"' "$ROOT/usr/share/libiwinfo/devices.txt"
+          strings "$ROOT"/usr/lib/libiwinfo.so* | grep -q 'device/modalias'
           printf '  OK      iwinfo modalias fallback + UWE5622 entry\n'
 
           echo "== UWE5622 runtime files in rootfs =="
