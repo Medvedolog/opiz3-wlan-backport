@@ -379,6 +379,15 @@ jobs:
           grep -q 'device/modalias' "$(dirname "$IWDB")/iwinfo_nl80211.c"
           printf '  OK      iwinfo modalias fallback + UWE5622 entry\n'
 
+          echo "== UWE5622 runtime files in rootfs =="
+          ROOT=$(find build_dir -maxdepth 2 -type d -name 'root-sunxi*' | head -1)
+          test -n "$ROOT"
+          test -f "$ROOT/etc/uwe5622.options"
+          test -x "$ROOT/usr/sbin/uwe5622-clamp-htmode"
+          grep -q 'insmod sprdwl_ng disable_powersave=1' "$ROOT/etc/init.d/sprdwl-delay"
+          grep -q '"platform:unisoc_wifi"' "$ROOT/usr/share/libiwinfo/devices.txt"
+          printf '  OK      options, htmode clamp, insmod loader, iwinfo entry\n'
+
           echo "== OpenVPN excluded =="
           if grep -qE '^(openvpn-[a-z]+|luci-app-openvpn) ' "$MANIFEST"; then
             echo "ERROR: OpenVPN packages present in image" >&2
