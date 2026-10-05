@@ -88,7 +88,7 @@ jobs:
         run: |
           ./scripts/feeds update base packages luci
           ./scripts/feeds install iwinfo
-          ./scripts/feeds install -a -p luci
+          ./scripts/feeds install luci-base
 
           # cfg80211 backport headers for the UWE5622 driver (not in the SDK)
           BASE_COMMIT=$(sed -n 's|.*openwrt.git^\([0-9a-f]*\).*|\1|p' feeds.conf.default)
@@ -126,6 +126,11 @@ jobs:
           for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
             cp -a "/tmp/awg/$p" package/
           done
+
+          # feeds install already scanned the tree; mac80211 comes from a
+          # tarball with old mtimes, so drop the cached package index to
+          # make the next make rescan everything
+          rm -rf tmp
 
       - name: Configure
         working-directory: sdk
