@@ -14,7 +14,14 @@ a static per-station table. For wcnmodem.bin MARLIN3_19B_W21.05.3:
 SDIO direct-access window (CP address + 0x40400000, as the firmware image
 at 0x100000 is loaded at 0x40500000) and prints the decoded rate of each
 non-empty station block, followed by a raw hex dump for locating the
-station MAC and RSSI.
+station MAC.
+
+RSSI: 0x1539b0(lut) copies the MAC's per-LUT TX statistics (signed sum
+at +0x40, count at +0x44), 0x128554 accumulates them into the station
+block and 0x126d54 keeps a 50/50-smoothed signed average at +0x3a5
+(valid flag +0x3a4). A signed byte averaged per ACK is taken to be the
+client's ACK RSSI in dBm, printed as "rssi"; to be confirmed against the
+client's own reading. 0x1539b0 also shows the station index is the LUT.
 
 A failed direct read marks the card dumped on sunxi and stops Wi-Fi, so
 the table is read only after the pointer at 0x17d690 is found to hold
@@ -30,7 +37,7 @@ the table is read only after the pointer at 0x17d690 is found to hold
  #include <linux/of.h>
  #include "sprdwl.h"
  #include "wl_intf.h"
-@@ -531,6 +532,151 @@ static const struct file_operations peer
+@@ -531,6 +532,161 @@ static const struct file_operations peer
  	.release = single_release,
  };
  
@@ -47,6 +54,13 @@ the table is read only after the pointer at 0x17d690 is found to hold
 + *            100 kbit/s), 2 HT (MCS [1] & 0x7f), 3 VHT (MCS [1] & 0xf,
 + *            2 streams if [4])
 + *     bw   = sta[0x241]: 1 = 40 MHz, 2 = 80 MHz
++ *
++ *   0x1539b0(lut) copies the MAC's per-LUT TX statistics (0x48 bytes,
++ *   signed sum at +0x40, count at +0x44) and 0x128554 adds them to
++ *   sta[0x3a8]/sta[0x3a6]; 0x126d54 turns that into a 50/50-smoothed
++ *   signed average at sta[0x3a5], valid when sta[0x3a4] == 1. A signed
++ *   byte averaged per ACK is taken to be the ACK RSSI in dBm (to be
++ *   confirmed on hardware). The station index is the LUT index.
 + *
 + * CP address A is at A + 0x40400000 on the bus (the image at 0x100000 is
 + * loaded at 0x40500000). A failed direct read marks the card dumped on
@@ -106,8 +120,11 @@ the table is read only after the pointer at 0x17d690 is found to hold
 +		seq_puts(s, "unknown");
 +		break;
 +	}
-+	seq_printf(s, " sgi %u bw %u\n", tbl[off + 3] ? 1 : 0,
++	seq_printf(s, " sgi %u bw %u", tbl[off + 3] ? 1 : 0,
 +		   sta[0x241] == 2 ? 80 : sta[0x241] == 1 ? 40 : 20);
++	if (idx * CP_STA_SIZE + 0x3a5 < CP_STA_TABLE_LEN && sta[0x3a4] == 1)
++		seq_printf(s, " rssi %d", (s8)sta[0x3a5]);
++	seq_putc(s, '\n');
 +}
 +
 +static int cp_sta_table_show(struct seq_file *s, void *p)
@@ -182,7 +199,7 @@ the table is read only after the pointer at 0x17d690 is found to hold
  static int rx_desc_dump_open(struct inode *inode, struct file *file)
  {
  	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
-@@ -581,6 +727,8 @@ static void sprdwl_debugfs_init(struct s
+@@ -581,6 +737,8 @@ static void sprdwl_debugfs_init(struct s
  			    &peer_stats_fops);
  	debugfs_create_file("rx_desc_dump", S_IRUSR, sprdwl_debug_root, NULL,
  			    &rx_desc_dump_fops);
