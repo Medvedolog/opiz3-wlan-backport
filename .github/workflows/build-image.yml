@@ -19,6 +19,7 @@ env:
   OPENWRT_TAG: v25.12.5
   FOOTSTRAP_TAG: v0.14.13
   FOOTSTRAP_VERSION: 0.14.13
+  AWG_COMMIT: 3f3ec68d594c8e965c988af75ac5314616229c88
   TARGET: sunxi
   SUBTARGET: cortexa53
   PROFILE: xunlong_orangepi-zero3
@@ -93,6 +94,17 @@ jobs:
           chmod +x files/etc/uci-defaults/zz-opiz3-footstrap-default
           test -x files/etc/uci-defaults/zz-opiz3-footstrap-default
 
+      - name: Add AmneziaWG packages
+        working-directory: openwrt
+        run: |
+          git clone https://github.com/2Grey/awg-openwrt.git /tmp/awg-openwrt
+          git -C /tmp/awg-openwrt checkout "$AWG_COMMIT"
+          for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
+            test -d "/tmp/awg-openwrt/$p"
+            cp -a "/tmp/awg-openwrt/$p" "package/$p"
+          done
+          printf 'AmneziaWG source pinned at %s\n' "$AWG_COMMIT"
+
       - name: Update feeds
         working-directory: openwrt
         run: |
@@ -116,10 +128,65 @@ jobs:
           CONFIG_PACKAGE_iwinfo=y
           CONFIG_PACKAGE_wpad-basic-mbedtls=y
 
+          # Broad USB Wi-Fi support for common MediaTek/Ralink, Realtek,
+          # Atheros and Broadcom dongles. Firmware dependencies are pulled
+          # by the corresponding kmod packages.
+          CONFIG_PACKAGE_kmod-mt7601u=y
+          CONFIG_PACKAGE_kmod-mt76x0u=y
+          CONFIG_PACKAGE_kmod-mt76x2u=y
+          CONFIG_PACKAGE_kmod-mt7663u=y
+          CONFIG_PACKAGE_kmod-mt7921u=y
+          CONFIG_PACKAGE_kmod-mt7925u=y
+          CONFIG_PACKAGE_kmod-rt2800-usb=y
+          CONFIG_PACKAGE_kmod-rt73-usb=y
+          CONFIG_PACKAGE_kmod-rtl8xxxu=y
+          CONFIG_PACKAGE_kmod-rtl8192cu=y
+          CONFIG_PACKAGE_kmod-rtw88-8821au=y
+          CONFIG_PACKAGE_kmod-rtw88-8812au=y
+          CONFIG_PACKAGE_kmod-rtw88-8814au=y
+          CONFIG_PACKAGE_kmod-rtw88-8821cu=y
+          CONFIG_PACKAGE_kmod-rtw88-8822bu=y
+          CONFIG_PACKAGE_kmod-rtw88-8822cu=y
+          CONFIG_PACKAGE_kmod-rtw88-8723du=y
+          CONFIG_PACKAGE_kmod-ath9k-htc=y
+          CONFIG_PACKAGE_kmod-ath6kl-usb=y
+          CONFIG_PACKAGE_kmod-brcmfmac=y
+
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-ssl=y
           CONFIG_PACKAGE_luci-theme-footstrap=y
           CONFIG_PACKAGE_luci-theme-bootstrap=y
+
+          # VPN stack
+          CONFIG_PACKAGE_kmod-amneziawg=y
+          CONFIG_PACKAGE_amneziawg-tools=y
+          CONFIG_PACKAGE_luci-app-amneziawg=y
+          CONFIG_PACKAGE_kmod-wireguard=y
+          CONFIG_PACKAGE_wireguard-tools=y
+          CONFIG_PACKAGE_luci-proto-wireguard=y
+          CONFIG_PACKAGE_openvpn-mbedtls=y
+          CONFIG_PACKAGE_luci-app-openvpn=y
+          CONFIG_PACKAGE_kmod-tun=y
+
+          # Podkop/Forkop runtime dependency superset. Do not install either
+          # orchestrator here: both can later be installed without fetching
+          # missing kernel/netfilter support.
+          CONFIG_PACKAGE_sing-box=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_jq=y
+          CONFIG_PACKAGE_ca-bundle=y
+          CONFIG_PACKAGE_coreutils-base64=y
+          CONFIG_PACKAGE_bind-dig=y
+          CONFIG_PACKAGE_nftables=y
+          CONFIG_PACKAGE_kmod-nft-tproxy=y
+          CONFIG_PACKAGE_kmod-nf-tproxy=y
+          CONFIG_PACKAGE_kmod-nft-socket=y
+          CONFIG_PACKAGE_kmod-nft-nat=y
+          CONFIG_PACKAGE_kmod-inet-diag=y
+          CONFIG_PACKAGE_kmod-netlink-diag=y
+          CONFIG_PACKAGE_ucode=y
+          CONFIG_PACKAGE_ucode-mod-fs=y
+          CONFIG_PACKAGE_ucode-mod-uci=y
 
           # Cellular modem stack and USB transport support
           CONFIG_PACKAGE_modemmanager=y
@@ -189,6 +256,18 @@ jobs:
             kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis \
             kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan \
             kmod-usb-net-cdc-subset kmod-mii \
+            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u kmod-mt7663u \
+            kmod-mt7921u kmod-mt7925u kmod-rt2800-usb kmod-rt73-usb \
+            kmod-rtl8xxxu kmod-rtl8192cu kmod-rtw88-8821au kmod-rtw88-8812au \
+            kmod-rtw88-8814au kmod-rtw88-8821cu kmod-rtw88-8822bu \
+            kmod-rtw88-8822cu kmod-rtw88-8723du kmod-ath9k-htc \
+            kmod-ath6kl-usb kmod-brcmfmac \
+            kmod-amneziawg amneziawg-tools luci-app-amneziawg \
+            kmod-wireguard wireguard-tools luci-proto-wireguard \
+            openvpn-mbedtls luci-app-openvpn kmod-tun \
+            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables \
+            kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat \
+            kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci \
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
             usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty \
             ethtool ip-full ip-bridge tcpdump lsof strace ppp chat; do
@@ -241,6 +320,18 @@ jobs:
             kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179 \
             kmod-usb-net-smsc95xx kmod-usb-net-lan78xx \
             kmod-usb-net-dm9601-ether kmod-usb-net-sr9700 \
+            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u kmod-mt7663u \
+            kmod-mt7921u kmod-mt7925u kmod-rt2800-usb kmod-rt73-usb \
+            kmod-rtl8xxxu kmod-rtl8192cu kmod-rtw88-8821au kmod-rtw88-8812au \
+            kmod-rtw88-8814au kmod-rtw88-8821cu kmod-rtw88-8822bu \
+            kmod-rtw88-8822cu kmod-rtw88-8723du kmod-ath9k-htc \
+            kmod-ath6kl-usb kmod-brcmfmac \
+            kmod-amneziawg amneziawg-tools luci-app-amneziawg \
+            kmod-wireguard wireguard-tools luci-proto-wireguard \
+            openvpn-mbedtls luci-app-openvpn kmod-tun \
+            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables \
+            kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat \
+            kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci \
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager \
             usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty \
             ethtool ip-full ip-bridge tcpdump lsof strace ppp chat \
@@ -268,6 +359,10 @@ jobs:
           printf '  OK      patch100 SET_CHANNEL marker absent (control)\n'
           strings "$KO" | grep -q 'sprdwl_start_ap' && \
             printf '  OK      sprdwl_start_ap present\n' || exit 1
+          strings "$KO" | grep -q 'START_AP chandef freq=' && \
+            printf '  OK      patch170 START_AP IE diagnostics present\n' || exit 1
+          strings "$KO" | grep -q 'DS_PARAMS not present in beacon head' && \
+            printf '  OK      patch180 DeepAQ 5GHz DS fallback present\n' || exit 1
 
           echo "== Footstrap default payload =="
           test -x files/etc/uci-defaults/zz-opiz3-footstrap-default
