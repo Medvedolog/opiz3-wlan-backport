@@ -23,6 +23,7 @@ on:
     paths:
       - 'package/**'
       - 'scripts/zero3-dtb-add-wifi.py'
+      - 'scripts/fit-replace-dtb.py'
       - '.github/workflows/build-ib.yml'
   workflow_dispatch:
 
@@ -218,7 +219,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gawk gettext libncurses-dev \
-            python3 rsync unzip zstd file device-tree-compiler mtools fdisk
+            python3 rsync unzip zstd file device-tree-compiler mtools fdisk u-boot-tools
 
       - name: Download ImageBuilder ${{ env.RELEASE }}
         run: |
@@ -237,8 +238,15 @@ jobs:
           python3 ../scripts/zero3-dtb-add-wifi.py "$DTB" /tmp/zero3.dtb
           cp /tmp/zero3.dtb "$DTB"
           test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
-          # make the FIT kernel image be rebuilt with this DTB
-          find build_dir -maxdepth 3 -name '*orangepi-zero3*kernel*' -print -delete
+          # the IB has no rule to rebuild the kernel, so put the DTB into
+          # its prebuilt FIT kernel image directly
+          FIT=$(find build_dir -maxdepth 3 -name 'xunlong_orangepi-zero3-kernel.bin' | head -1)
+          test -n "$FIT"
+          python3 ../scripts/fit-replace-dtb.py "$FIT" /tmp/zero3.dtb /tmp/fit.itb
+          mv /tmp/fit.itb "$FIT"
+          dumpimage -l "$FIT"
+          dumpimage -T flat_dt -p 1 -o /tmp/fit-fdt.dtb "$FIT"
+          cmp /tmp/fit-fdt.dtb /tmp/zero3.dtb
 
       - name: Our repository and key
         working-directory: ib
