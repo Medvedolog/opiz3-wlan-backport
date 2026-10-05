@@ -1,0 +1,110 @@
+Subject: [PATCH] unisocwifi: advertise only verified channel widths and channels
+
+The CP firmware asserts (rf_marlin.c:1010) instead of rejecting a channel
+it cannot program, and the driver does not recover from a CP assert.  So
+whatever cfg80211 lets userspace configure must be something the firmware
+is known to handle.
+
+Clamp the band tables at the end of sprdwl_setup_wiphy(), after the
+firmware HT/VHT capabilities and the custom regulatory domain have been
+applied and before wiphy_register(), so the limits become orig_flags and
+survive later regulatory updates:
+
+  max_bw_2g=20|40      2.4 GHz width, default 20
+  max_bw_5g=20|40|80   5 GHz width, default 20
+  allow_dfs=0|1        DFS channels 52-144, default hidden (no radar
+                       detection in this driver)
+
+Channels 34 and 184-216 are always disabled and 160 MHz is never
+advertised.  cfg80211 then rejects wider chandefs itself, so a VHT80 or
+HT40 selection fails in hostapd instead of reaching the firmware.
+
+The defaults cover only what has been verified on hardware (HT20 on
+2.4 GHz ch6 and 5 GHz ch36); raise them per test matrix.
+
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -4450,6 +4450,74 @@ static void sprdwl_vht_cap_update(struct
+ 			sizeof(struct ieee80211_vht_mcs_info));
+ }
+ 
++/*
++ * OpenWrt: only advertise channel widths and channels that have been
++ * verified on hardware.  The CP firmware asserts (rf_marlin.c:1010)
++ * instead of rejecting a channel it cannot program, and the driver does
++ * not recover from a CP assert, so everything cfg80211 lets through must
++ * be safe.  The limits are applied to the band tables before
++ * wiphy_register(), so they become orig_flags and survive regulatory
++ * updates, and cfg80211 itself refuses any chandef that exceeds them.
++ */
++static unsigned int max_bw_2g = 20;
++module_param(max_bw_2g, uint, 0444);
++MODULE_PARM_DESC(max_bw_2g, "Max channel width on 2.4 GHz in MHz: 20 or 40 (default 20)");
++
++static unsigned int max_bw_5g = 20;
++module_param(max_bw_5g, uint, 0444);
++MODULE_PARM_DESC(max_bw_5g, "Max channel width on 5 GHz in MHz: 20, 40 or 80 (default 20)");
++
++static bool allow_dfs;
++module_param(allow_dfs, bool, 0444);
++MODULE_PARM_DESC(allow_dfs, "Expose DFS channels 52-144; no radar detection support (default N)");
++
++static void sprdwl_clamp_bands(struct wiphy *wiphy)
++{
++	struct ieee80211_supported_band *sband;
++	struct ieee80211_channel *chan;
++	int i;
++
++	sband = wiphy->bands[NL80211_BAND_2GHZ];
++	if (sband && max_bw_2g < 40) {
++		sband->ht_cap.cap &= ~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 |
++				       IEEE80211_HT_CAP_SGI_40);
++		for (i = 0; i < sband->n_channels; i++)
++			sband->channels[i].flags |= IEEE80211_CHAN_NO_HT40;
++	}
++
++	sband = wiphy->bands[NL80211_BAND_5GHZ];
++	if (sband) {
++		for (i = 0; i < sband->n_channels; i++) {
++			chan = &sband->channels[i];
++
++			/* 34 and 184-216 are not usable outside Japan/legacy */
++			if (chan->hw_value == 34 || chan->hw_value >= 184)
++				chan->flags |= IEEE80211_CHAN_DISABLED;
++			if (!allow_dfs &&
++			    chan->hw_value >= 52 && chan->hw_value <= 144)
++				chan->flags |= IEEE80211_CHAN_DISABLED;
++
++			chan->flags |= IEEE80211_CHAN_NO_160MHZ;
++			if (max_bw_5g < 80)
++				chan->flags |= IEEE80211_CHAN_NO_80MHZ;
++			if (max_bw_5g < 40)
++				chan->flags |= IEEE80211_CHAN_NO_HT40;
++		}
++		if (max_bw_5g < 40)
++			sband->ht_cap.cap &= ~(IEEE80211_HT_CAP_SUP_WIDTH_20_40 |
++					       IEEE80211_HT_CAP_SGI_40);
++		sband->vht_cap.cap &= ~(IEEE80211_VHT_CAP_SUPP_CHAN_WIDTH_MASK |
++					IEEE80211_VHT_CAP_SHORT_GI_160);
++		if (max_bw_5g < 80)
++			sband->vht_cap.cap &= ~IEEE80211_VHT_CAP_SHORT_GI_80;
++	}
++
++	pr_info("sprdwl: channel limits: 2.4 GHz %u MHz, 5 GHz %u MHz, DFS %s\n",
++		max_bw_2g < 40 ? 20 : 40,
++		max_bw_5g < 40 ? 20 : max_bw_5g < 80 ? 40 : 80,
++		allow_dfs ? "exposed" : "hidden");
++}
++
+ void sprdwl_setup_wiphy(struct wiphy *wiphy, struct sprdwl_priv *priv)
+ {
+ 	struct wiphy_sec2_t *sec2 = NULL;
+@@ -4688,6 +4756,8 @@ void sprdwl_setup_wiphy(struct wiphy *wi
+ 	wiphy_ext_feature_set(wiphy,
+ 		NL80211_EXT_FEATURE_SCHED_SCAN_RELATIVE_RSSI);
+ #endif
++
++	sprdwl_clamp_bands(wiphy);
+ }
+ 
+ static void sprdwl_check_intf_ops(struct sprdwl_if_ops *ops)
