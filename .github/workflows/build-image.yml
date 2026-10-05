@@ -370,6 +370,8 @@ jobs:
             printf '  OK      patch180 DeepAQ 5GHz DS fallback present\n' || exit 1
           strings "$KO" | grep -q 'channel limits: 2.4 GHz' && \
             printf '  OK      patch200 channel width/channel clamp present\n' || exit 1
+          strings "$KO" | grep -q 'layout mismatch: ret %d' && \
+            printf '  OK      patch230 cp_sta_table reader present\n' || exit 1
 
           echo "== iwinfo UWE5622 hardware name =="
           IWDB=$(find build_dir -path '*/iwinfo-*/devices.txt' | head -1)

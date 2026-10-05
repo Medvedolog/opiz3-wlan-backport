@@ -1,0 +1,193 @@
+Subject: [PATCH] unisocwifi: debugfs cp_sta_table, firmware per-station rate state
+
+Experimental, read-only. The firmware command interface has no per-peer
+rate or RSSI in AP mode, but the firmware keeps its rate-control state in
+a static per-station table. For wcnmodem.bin MARLIN3_19B_W21.05.3:
+
+  0x126128 stores 0x17e390 to *(0x17d68c + 4) and clears 0x2420 bytes;
+  the rate formatter 0x128e90 reads, for station idx, the 0x228-byte
+  block at 0x17e390 + idx * 0x228 (mode at +0x23d, rate index at
+  +0x238/+0x239, rate set at +0x1c0, bandwidth at +0x241) and a 7-byte
+  rate descriptor at 0x17e390 + 7 * code.
+
+/sys/kernel/debug/sprdwl_debug/cp_sta_table reads the table through the
+SDIO direct-access window (CP address + 0x40400000, as the firmware image
+at 0x100000 is loaded at 0x40500000) and prints the decoded rate of each
+non-empty station block, followed by a raw hex dump for locating the
+station MAC and RSSI.
+
+A failed direct read marks the card dumped on sunxi and stops Wi-Fi, so
+the table is read only after the pointer at 0x17d690 is found to hold
+0x17e390 (proving the firmware layout), and never after a CP assert.
+
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -21,6 +21,7 @@
+ #include <linux/kthread.h>
+ #include <linux/version.h>
+ #include <marlin_platform.h>
++#include <wcn_bus.h>
+ #include <linux/of.h>
+ #include "sprdwl.h"
+ #include "wl_intf.h"
+@@ -531,6 +532,151 @@ static const struct file_operations peer
+ 	.release = single_release,
+ };
+ 
++/*
++ * Experimental: read the firmware's per-station rate state over the SDIO
++ * direct-access window. Layout of wcnmodem.bin MARLIN3_19B_W21.05.3 only:
++ *
++ *   0x126128 sets *(0x17d68c + 4) = 0x17e390 and clears 0x2420 bytes;
++ *   the rate formatter 0x128e90 then uses, for station idx,
++ *     sta  = 0x17e390 + idx * 0x228
++ *     mode = sta[0x23d]: 0/1 -> rate index sta[0x238] - 1, else sta[0x239]
++ *     code = sta[0x1c0 + 5 * index], sgi = sta[0x1c0 + 5 * index + 3]
++ *     desc = 0x17e390 + 7 * code: [3] type 0/1 legacy ([2] * 10 in
++ *            100 kbit/s), 2 HT (MCS [1] & 0x7f), 3 VHT (MCS [1] & 0xf,
++ *            2 streams if [4])
++ *     bw   = sta[0x241]: 1 = 40 MHz, 2 = 80 MHz
++ *
++ * CP address A is at A + 0x40400000 on the bus (the image at 0x100000 is
++ * loaded at 0x40500000). A failed direct read marks the card dumped on
++ * sunxi, which stops Wi-Fi until reboot, so read only after the pointer
++ * check proves the layout, and never after a CP assert.
++ */
++#define CP_BUS_OFFSET		0x40400000
++#define CP_STA_PTR		0x17d690
++#define CP_STA_TABLE		0x17e390
++#define CP_STA_TABLE_LEN	0x2420
++#define CP_STA_SIZE		0x228
++#define CP_STA_NUM		16
++
++static DEFINE_MUTEX(cp_sta_lock);
++
++static void cp_sta_show_one(struct seq_file *s, const u8 *tbl, int idx)
++{
++	const u8 *sta = tbl + idx * CP_STA_SIZE;
++	unsigned int mode = sta[0x23d], ri, off, code, doff;
++	const u8 *desc;
++
++	if (mode == 0 || mode == 1)
++		ri = (u8)(sta[0x238] - 1);
++	else
++		ri = sta[0x239];
++
++	off = idx * CP_STA_SIZE + 0x1c0 + 5 * ri;
++	if (off + 4 > CP_STA_TABLE_LEN) {
++		seq_printf(s, "%2d mode %u idx %u: out of range\n", idx, mode, ri);
++		return;
++	}
++	code = tbl[off];
++	doff = 7 * code;
++	if (doff + 5 > CP_STA_TABLE_LEN) {
++		seq_printf(s, "%2d mode %u idx %u code %u: out of range\n",
++			   idx, mode, ri, code);
++		return;
++	}
++	desc = tbl + doff;
++
++	seq_printf(s, "%2d mode %u idx %3u code %3u type %u ", idx, mode, ri,
++		   code, desc[3]);
++	switch (desc[3]) {
++	case 0:
++	case 1:
++		/* formatter stores desc[2] * 10 as the legacy rate */
++		seq_printf(s, "legacy raw %u (x10 = %u)", desc[2], desc[2] * 10);
++		break;
++	case 2:
++		seq_printf(s, "HT MCS %u", desc[1] & 0x7f);
++		break;
++	case 3:
++		seq_printf(s, "VHT MCS %u NSS %u", desc[1] & 0xf,
++			   desc[4] ? 2 : 1);
++		break;
++	default:
++		seq_puts(s, "unknown");
++		break;
++	}
++	seq_printf(s, " sgi %u bw %u\n", tbl[off + 3] ? 1 : 0,
++		   sta[0x241] == 2 ? 80 : sta[0x241] == 1 ? 40 : 20);
++}
++
++static int cp_sta_table_show(struct seq_file *s, void *p)
++{
++	struct sprdwl_intf *intf = s->private;
++	u32 ptr = 0;
++	u8 *tbl;
++	int i, j, ret;
++
++	if (intf->cp_asserted || sprdwcn_bus_get_carddump_status()) {
++		seq_puts(s, "CP not running, not reading\n");
++		return 0;
++	}
++
++	tbl = kzalloc(CP_STA_TABLE_LEN, GFP_KERNEL);
++	if (!tbl)
++		return -ENOMEM;
++
++	mutex_lock(&cp_sta_lock);
++	ret = sprdwcn_bus_direct_read(CP_STA_PTR + CP_BUS_OFFSET, &ptr,
++				      sizeof(ptr));
++	if (ret || ptr != CP_STA_TABLE) {
++		mutex_unlock(&cp_sta_lock);
++		seq_printf(s, "layout mismatch: ret %d *0x%x = 0x%x, expected 0x%x\n",
++			   ret, CP_STA_PTR, ptr, CP_STA_TABLE);
++		kfree(tbl);
++		return 0;
++	}
++	ret = sprdwcn_bus_direct_read(CP_STA_TABLE + CP_BUS_OFFSET, tbl,
++				      CP_STA_TABLE_LEN);
++	mutex_unlock(&cp_sta_lock);
++	if (ret) {
++		seq_printf(s, "read failed: %d\n", ret);
++		kfree(tbl);
++		return 0;
++	}
++
++	seq_printf(s, "table 0x%x len 0x%x\n", CP_STA_TABLE, CP_STA_TABLE_LEN);
++	for (i = 0; i < CP_STA_NUM; i++) {
++		const u8 *sta = tbl + i * CP_STA_SIZE + 0x194;
++
++		if (!memchr_inv(sta, 0, CP_STA_SIZE))
++			continue;
++		cp_sta_show_one(s, tbl, i);
++	}
++
++	/* raw dump for further reverse engineering (MAC, RSSI offsets) */
++	for (i = 0; i < CP_STA_TABLE_LEN; i += 32) {
++		if (!memchr_inv(tbl + i, 0, 32))
++			continue;
++		j = min(32, CP_STA_TABLE_LEN - i);
++		seq_printf(s, "%04x: %*phN\n", i, j, tbl + i);
++	}
++
++	kfree(tbl);
++	return 0;
++}
++
++static int cp_sta_table_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, cp_sta_table_show, inode->i_private);
++}
++
++static const struct file_operations cp_sta_table_fops = {
++	.owner = THIS_MODULE,
++	.open = cp_sta_table_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
+ static int rx_desc_dump_open(struct inode *inode, struct file *file)
+ {
+ 	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
+@@ -581,6 +727,8 @@ static void sprdwl_debugfs_init(struct s
+ 			    &peer_stats_fops);
+ 	debugfs_create_file("rx_desc_dump", S_IRUSR, sprdwl_debug_root, NULL,
+ 			    &rx_desc_dump_fops);
++	debugfs_create_file("cp_sta_table", S_IRUSR, sprdwl_debug_root, intf,
++			    &cp_sta_table_fops);
+ }
+ 
+ static void sprdwl_debugfs_deinit(void)
