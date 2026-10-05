@@ -1,14 +1,9 @@
 name: Build test image (OpenWrt 25.12.5)
 
+# Full source build (own kernel). Kept as a manual fallback: its kmod ABI
+# differs from the official one, so official kmods do not install on it.
+# The default image is built by build-ib.yml.
 on:
-  push:
-    branches:
-      - dev/owrt-25.12-uwe5622-current
-      - ci/uwe5622-build20-control
-    paths:
-      - 'package/**'
-      - 'target/**'
-      - '.github/workflows/build-image.yml'
   workflow_dispatch:
 
 concurrency:
