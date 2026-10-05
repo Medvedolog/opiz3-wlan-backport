@@ -1,0 +1,82 @@
+#!/bin/sh
+# Bring Wi-Fi back after a CP (firmware) assert without a reboot.
+#
+# On an assert the BSP powers the Wi-Fi subsystem off and removes the
+# SDIO card (marlin_cp2_reset), and sprdwl_ng stops its TX path and emits
+# a "change" uevent on the unisoc_wifi platform device. The vendor stack
+# expects userspace to reload the driver: the next probe calls
+# start_marlin(), which rescans SDIO and downloads the firmware again.
+#
+# Step 1 reloads sprdwl_ng only. If no phy appears, step 2 also reloads
+# uwe5622_bsp_sdio (clears a stuck card-dump or loopcheck state).
+# At most MAX_TRIES recoveries per WINDOW seconds, so a configuration
+# that asserts on every start does not loop forever.
+
+MAX_TRIES=3
+WINDOW=1800
+STATE=/tmp/uwe5622-recover.times
+TAG=uwe5622-recover
+
+log() { logger -t "$TAG" "$*"; }
+
+wait_phy() {
+	i=0
+	while [ ! -e /sys/class/ieee80211/phy0 ] && [ "$i" -lt 30 ]; do
+		sleep 1; i=$((i + 1))
+	done
+	[ -e /sys/class/ieee80211/phy0 ]
+}
+
+load_wifi() {
+	opts=$(sed "s/#.*//" /etc/uwe5622.options 2>/dev/null | xargs)
+	/sbin/insmod sprdwl_ng disable_powersave=1 $opts
+}
+
+unload() {
+	# rmmod may block on a dead chip; do not let it wedge recovery
+	rmmod "$1" 2>/dev/null &
+	pid=$!
+	i=0
+	while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
+		sleep 1; i=$((i + 1))
+	done
+	[ ! -d "/sys/module/$1" ]
+}
+
+lock /var/lock/uwe5622-recover
+
+now=$(date +%s)
+recent=$(awk -v n="$now" -v w="$WINDOW" 'n - $1 < w' "$STATE" 2>/dev/null | wc -l)
+if [ "$recent" -ge "$MAX_TRIES" ]; then
+	log "$recent recoveries in ${WINDOW}s, giving up; reboot to restore Wi-Fi"
+	lock -u /var/lock/uwe5622-recover
+	exit 1
+fi
+echo "$now" >> "$STATE"
+
+log "CP assert: recovering Wi-Fi (attempt $((recent + 1))/$MAX_TRIES)"
+/sbin/wifi down radio0 2>/dev/null
+sleep 2
+
+ok=0
+if unload sprdwl_ng && load_wifi && wait_phy; then
+	ok=1
+else
+	log "driver reload did not bring phy0 back, reloading BSP"
+	unload sprdwl_ng
+	if unload uwe5622_bsp_sdio && /sbin/modprobe uwe5622_bsp_sdio; then
+		sleep 5
+		load_wifi && wait_phy && ok=1
+	fi
+fi
+
+if [ "$ok" = 1 ]; then
+	/usr/sbin/uwe5622-clamp-htmode
+	/sbin/wifi up radio0
+	log "Wi-Fi recovered"
+else
+	log "recovery failed; reboot to restore Wi-Fi"
+fi
+
+lock -u /var/lock/uwe5622-recover
+[ "$ok" = 1 ]

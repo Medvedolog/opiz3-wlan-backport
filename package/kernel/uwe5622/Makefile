@@ -65,6 +65,9 @@ define KernelPackage/uwe5622/install
 	$(INSTALL_DATA) ./files/uwe5622.options $(1)/etc/uwe5622.options
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) ./files/uwe5622-clamp-htmode $(1)/usr/sbin/uwe5622-clamp-htmode
+	$(INSTALL_BIN) ./files/uwe5622-recover $(1)/usr/sbin/uwe5622-recover
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/platform
+	$(INSTALL_DATA) ./files/50-uwe5622-recover $(1)/etc/hotplug.d/platform/50-uwe5622-recover
 endef
 
 define Build/Configure

@@ -384,6 +384,8 @@ jobs:
           test -n "$ROOT"
           test -f "$ROOT/etc/uwe5622.options"
           test -x "$ROOT/usr/sbin/uwe5622-clamp-htmode"
+          test -x "$ROOT/usr/sbin/uwe5622-recover"
+          test -f "$ROOT/etc/hotplug.d/platform/50-uwe5622-recover"
           grep -q 'insmod sprdwl_ng disable_powersave=1' "$ROOT/etc/init.d/sprdwl-delay"
           grep -q '"platform:unisoc_wifi"' "$ROOT/usr/share/libiwinfo/devices.txt"
           printf '  OK      options, htmode clamp, insmod loader, iwinfo entry\n'
@@ -424,6 +426,8 @@ jobs:
           test -f package/kernel/uwe5622/files/uwe5622.options
           grep -q 'uwe5622-clamp-htmode' package/kernel/uwe5622/files/sprdwl-delay
           sh -n package/kernel/uwe5622/files/uwe5622-clamp-htmode
+          sh -n package/kernel/uwe5622/files/uwe5622-recover
+          sh -n package/kernel/uwe5622/files/50-uwe5622-recover
 
           echo "== Zero 3 DTB mmc1 =="
           DTB=$(find build_dir -name 'sun50i-h618-orangepi-zero3.dtb' | head -1)
