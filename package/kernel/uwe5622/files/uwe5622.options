@@ -1,0 +1,12 @@
+# Extra sprdwl_ng module parameters, applied by /etc/init.d/sprdwl-delay
+# on the next boot (or after "rmmod sprdwl_ng; /etc/init.d/sprdwl-delay
+# restart"). Values are whitespace separated, "#" starts a comment.
+#
+# Defaults only expose what has been verified on hardware:
+#   max_bw_2g=20      2.4 GHz channel width, 20 or 40
+#   max_bw_5g=20      5 GHz channel width, 20, 40 or 80
+#   allow_dfs=0       DFS channels 52-144 (no radar detection support)
+#
+# Unverified settings can make the Wi-Fi firmware assert; only Wi-Fi is
+# lost, a reboot recovers it. Example for testing VHT80 on 5 GHz:
+#max_bw_5g=80

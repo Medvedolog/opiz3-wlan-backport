@@ -55,9 +55,14 @@ define KernelPackage/uwe5622/description
   used by the AW859A module on the Orange Pi 3 LTS.
 endef
 
+define KernelPackage/uwe5622/conffiles
+/etc/uwe5622.options
+endef
+
 define KernelPackage/uwe5622/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/sprdwl-delay $(1)/etc/init.d/sprdwl-delay
+	$(INSTALL_DATA) ./files/uwe5622.options $(1)/etc/uwe5622.options
 endef
 
 define Build/Configure

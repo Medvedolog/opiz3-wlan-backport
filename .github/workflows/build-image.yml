@@ -391,8 +391,9 @@ jobs:
             > "$OUT/driver-hotfix.sha256"
 
           echo "== delayed load policy =="
-          grep -q 'modprobe sprdwl_ng disable_powersave=1' \
+          grep -q 'insmod sprdwl_ng disable_powersave=1' \
             package/kernel/uwe5622/files/sprdwl-delay
+          test -f package/kernel/uwe5622/files/uwe5622.options
 
           echo "== Zero 3 DTB mmc1 =="
           DTB=$(find build_dir -name 'sun50i-h618-orangepi-zero3.dtb' | head -1)
