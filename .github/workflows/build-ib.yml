@@ -104,7 +104,10 @@ jobs:
 
           # iwinfo: our patch, and a higher release so it wins over the
           # official build of the same version
-          IW=feeds/base/package/network/utils/iwinfo
+          # the SDK's base feed is OpenWrt's package/ dir itself
+          IW=$(dirname "$(find feeds/base -path '*/utils/iwinfo/Makefile' | head -1)")
+          test -f "$IW/Makefile"
+          echo "iwinfo package: $IW"
           mkdir -p "$IW/patches"
           cp ../package/network/utils/iwinfo/patches/*.patch "$IW/patches/"
           sed -i 's/^PKG_RELEASE:=\([0-9]*\)$/PKG_RELEASE:=1\1/' "$IW/Makefile"
