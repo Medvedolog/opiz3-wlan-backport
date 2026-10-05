@@ -1,0 +1,433 @@
+name: Build image (official ImageBuilder + own apk repo)
+
+# Official OpenWrt kernel, so every kmod from downloads.openwrt.org installs
+# with apk. What OpenWrt does not ship is built with the official SDK (same
+# kernel ABI), signed with our key and published as an apk repository on
+# GitHub Pages:
+#   kmod-uwe5622, uwe5622-firmware, AmneziaWG, Footstrap, iwinfo (UWE5622 name)
+# The Orange Pi Zero 3 DTB in the ImageBuilder gets the Wi-Fi nodes
+# (scripts/zero3-dtb-add-wifi.py, same result as kernel patch 900).
+#
+# One-time setup in the repository settings:
+#   Settings > Secrets and variables > Actions > APK_SIGN_KEY
+#       (EC private key: openssl ecparam -name prime256v1 -genkey -noout)
+#   Settings > Pages > Source: Deploy from a branch, gh-pages / (root)
+#     (the branch appears after the first successful publish)
+# Without APK_SIGN_KEY the build still runs with a throw-away key, but
+# nothing is published.
+
+on:
+  push:
+    branches:
+      - ci/uwe5622-build20-control
+    paths:
+      - 'package/**'
+      - 'scripts/zero3-dtb-add-wifi.py'
+      - '.github/workflows/build-ib.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RELEASE: 25.12.5
+  TARGET: sunxi
+  SUBTARGET: cortexa53
+  ARCH: aarch64_cortex-a53
+  PROFILE: xunlong_orangepi-zero3
+  SDK_SUFFIX: sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64
+  FOOTSTRAP_TAG: v0.14.13
+  FOOTSTRAP_VERSION: 0.14.13
+  AWG_COMMIT: 3f3ec68d594c8e965c988af75ac5314616229c88
+  KEY_NAME: opiz3-wlan
+  # our packages only; anything else the SDK rebuilt as a dependency stays out
+  OWN_PACKAGES: >-
+    kmod-uwe5622 uwe5622-firmware
+    kmod-amneziawg amneziawg-tools luci-app-amneziawg
+    luci-theme-footstrap
+    iwinfo libiwinfo libiwinfo-data
+
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
+
+      - name: Download SDK ${{ env.RELEASE }}
+        run: |
+          BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
+          SDK=openwrt-sdk-$RELEASE-$SDK_SUFFIX
+          curl -fsSL -O "$BASE/$SDK.tar.zst"
+          tar --zstd -xf "$SDK.tar.zst"
+          mv "$SDK" sdk
+
+      - name: Signing key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          if [ -n "$APK_SIGN_KEY" ]; then
+            printf '%s\n' "$APK_SIGN_KEY" > sdk/private-key.pem
+            echo "Using APK_SIGN_KEY"
+          else
+            openssl ecparam -name prime256v1 -genkey -noout -out sdk/private-key.pem
+            echo "::warning::APK_SIGN_KEY not set: throw-away key, nothing will be published"
+          fi
+          openssl ec -in sdk/private-key.pem -pubout > sdk/public-key.pem
+          cp sdk/public-key.pem "$KEY_NAME.pem"
+
+      - name: Feeds and sources
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install iwinfo
+          ./scripts/feeds install -a -p luci
+
+          # cfg80211 backport headers for the UWE5622 driver (not in the SDK)
+          BASE_COMMIT=$(sed -n 's|.*openwrt.git^\([0-9a-f]*\).*|\1|p' feeds.conf.default)
+          curl -fsSL -o ow.tar.gz "https://codeload.github.com/openwrt/openwrt/tar.gz/$BASE_COMMIT"
+          tar -xzf ow.tar.gz "openwrt-$BASE_COMMIT/package/kernel/mac80211"
+          mv "openwrt-$BASE_COMMIT/package/kernel/mac80211" package/kernel/
+          rm -rf ow.tar.gz "openwrt-$BASE_COMMIT"
+
+          cp -r ../package/kernel/uwe5622 package/kernel/
+          mkdir -p package/firmware
+          cp -r ../package/firmware/uwe5622-firmware package/firmware/
+          chmod +x package/kernel/uwe5622/files/*
+
+          # iwinfo: our patch, and a higher release so it wins over the
+          # official build of the same version
+          IW=feeds/base/package/network/utils/iwinfo
+          mkdir -p "$IW/patches"
+          cp ../package/network/utils/iwinfo/patches/*.patch "$IW/patches/"
+          sed -i 's/^PKG_RELEASE:=\([0-9]*\)$/PKG_RELEASE:=1\1/' "$IW/Makefile"
+          grep -n '^PKG_RELEASE' "$IW/Makefile"
+
+          git clone --depth 1 --branch "$FOOTSTRAP_TAG" \
+            https://github.com/VizzleTF/luci-theme-footstrap.git /tmp/footstrap
+          cp -a /tmp/footstrap/luci-theme-footstrap package/
+
+          git clone https://github.com/2Grey/awg-openwrt.git /tmp/awg
+          git -C /tmp/awg checkout "$AWG_COMMIT"
+          for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
+            cp -a "/tmp/awg/$p" package/
+          done
+
+      - name: Configure
+        working-directory: sdk
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_sunxi=y
+          CONFIG_TARGET_sunxi_cortexa53=y
+          CONFIG_SIGNED_PACKAGES=y
+          CONFIG_PACKAGE_kmod-uwe5622=m
+          CONFIG_PACKAGE_uwe5622-firmware=m
+          CONFIG_PACKAGE_kmod-amneziawg=m
+          CONFIG_PACKAGE_amneziawg-tools=m
+          CONFIG_PACKAGE_luci-app-amneziawg=m
+          CONFIG_PACKAGE_luci-theme-footstrap=m
+          CONFIG_PACKAGE_iwinfo=m
+          CONFIG_PACKAGE_libiwinfo=m
+          CONFIG_PACKAGE_libiwinfo-data=m
+          EOF
+          sed -i 's/^ *//' .config
+          make defconfig
+
+      - name: Build
+        working-directory: sdk
+        run: |
+          set -o pipefail
+          for p in package/kernel/mac80211 package/kernel/uwe5622 \
+                   package/firmware/uwe5622-firmware \
+                   package/kmod-amneziawg package/amneziawg-tools \
+                   package/luci-app-amneziawg package/luci-theme-footstrap \
+                   package/feeds/base/iwinfo; do
+            echo "::group::$p"
+            make "$p/compile" -j"$(nproc)" V=s > build.log 2>&1 || {
+              tail -150 build.log; exit 1; }
+            tail -15 build.log
+            echo "::endgroup::"
+          done
+
+      - name: Collect, check and index our packages
+        working-directory: sdk
+        run: |
+          mkdir -p ../repo
+          for n in $OWN_PACKAGES; do
+            # packages with an ABI_VERSION carry it in the name (libiwinfo20230701)
+            f=$(find bin \( -name "$n-[0-9]*.apk" -o -name "$n[0-9]*-[0-9]*.apk" \) | head -1)
+            [ -n "$f" ] || { echo "MISSING $n"; exit 1; }
+            cp "$f" ../repo/
+            echo "  OK      $(basename "$f")"
+          done
+          find bin -name 'luci-i18n-amneziawg-*.apk' -exec cp {} ../repo/ \;
+
+          KO=$(find build_dir -name sprdwl_ng.ko | head -1)
+          for m in 'DS_PARAMS not present in beacon head' \
+                   'channel limits: 2.4 GHz' 'layout mismatch: ret %d'; do
+            strings "$KO" | grep -q "$m" || { echo "driver lacks: $m"; exit 1; }
+          done
+          IWSRC=$(dirname "$(find build_dir -name iwinfo_nl80211.c -path '*/iwinfo-*' | head -1)")
+          grep -q 'device/modalias' "$IWSRC/iwinfo_nl80211.c"
+          grep -q '"platform:unisoc_wifi"' "$IWSRC/devices.txt"
+
+          cd ../repo
+          ../sdk/staging_dir/host/bin/apk mkndx --allow-untrusted \
+            --sign ../sdk/private-key.pem --output packages.adb *.apk
+          ../sdk/staging_dir/host/bin/apk adbdump --format json packages.adb \
+            | head -c 600; echo
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-repo
+          path: |
+            repo/
+            ${{ env.KEY_NAME }}.pem
+
+  image:
+    needs: packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-repo
+          path: apk-repo
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gawk gettext libncurses-dev \
+            python3 rsync unzip zstd file device-tree-compiler mtools fdisk
+
+      - name: Download ImageBuilder ${{ env.RELEASE }}
+        run: |
+          BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
+          IB=openwrt-imagebuilder-$RELEASE-$TARGET-$SUBTARGET.Linux-x86_64
+          curl -fsSL -O "$BASE/$IB.tar.zst"
+          tar --zstd -xf "$IB.tar.zst"
+          mv "$IB" ib
+          echo "IB_NAME=$IB" >> "$GITHUB_ENV"
+
+      - name: Add Wi-Fi to the Zero 3 DTB
+        working-directory: ib
+        run: |
+          DTB=$(find build_dir -path '*/arch/arm64/boot/dts/allwinner/sun50i-h618-orangepi-zero3.dtb' | head -1)
+          test -n "$DTB"
+          python3 ../scripts/zero3-dtb-add-wifi.py "$DTB" /tmp/zero3.dtb
+          cp /tmp/zero3.dtb "$DTB"
+          test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
+          # make the FIT kernel image be rebuilt with this DTB
+          find build_dir -maxdepth 3 -name '*orangepi-zero3*kernel*' -print -delete
+
+      - name: Our repository and key
+        working-directory: ib
+        run: |
+          OWNER=${GITHUB_REPOSITORY%%/*}
+          REPO=${GITHUB_REPOSITORY#*/}
+          URL="https://$OWNER.github.io/$REPO/$RELEASE/$TARGET-$SUBTARGET/packages.adb"
+          echo "REPO_URL=$URL" >> "$GITHUB_ENV"
+
+          cp ../apk-repo/repo/*.apk packages/
+          cp "../apk-repo/$KEY_NAME.pem" keys/
+          echo "$URL" >> repositories
+          cat repositories
+
+          mkdir -p files/etc/apk/keys files/etc/apk/repositories.d files/etc/uci-defaults
+          cp "../apk-repo/$KEY_NAME.pem" files/etc/apk/keys/
+          echo "$URL" > files/etc/apk/repositories.d/customfeeds.list
+          cat > files/etc/uci-defaults/zz-opiz3-footstrap-default <<'EOF'
+          #!/bin/sh
+          uci set luci.themes.Footstrap='/luci-static/footstrap'
+          uci set luci.main.mediaurlbase='/luci-static/footstrap'
+          uci commit luci
+          exit 0
+          EOF
+          sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-footstrap-default
+          chmod +x files/etc/uci-defaults/zz-opiz3-footstrap-default
+
+      - name: Build image
+        working-directory: ib
+        run: |
+          PACKAGES="
+            kmod-uwe5622 uwe5622-firmware wireless-regdb iw iwinfo wpad-basic-mbedtls
+            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u kmod-mt7921u kmod-mt7925u
+            kmod-rt2800-usb kmod-rt73-usb kmod-rtl8xxxu kmod-rtl8192cu
+            kmod-rtw88-8821au kmod-rtw88-8812au kmod-rtw88-8814au kmod-rtw88-8821cu
+            kmod-rtw88-8822bu kmod-rtw88-8822cu kmod-rtw88-8723du
+            kmod-ath9k-htc kmod-ath6kl-usb kmod-brcmfmac
+            luci luci-ssl luci-theme-footstrap luci-theme-bootstrap
+            kmod-amneziawg amneziawg-tools luci-app-amneziawg
+            kmod-wireguard wireguard-tools luci-proto-wireguard kmod-tun
+            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables-json
+            kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat
+            kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci
+            modemmanager uqmi umbim usb-modeswitch comgt comgt-ncm
+            kmod-usb-core kmod-usb2 kmod-usb3
+            kmod-usb-serial kmod-usb-serial-wwan kmod-usb-serial-option kmod-usb-acm
+            kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis
+            kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan
+            kmod-usb-net-cdc-eem kmod-usb-net-cdc-subset kmod-mii
+            kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179
+            kmod-usb-net-smsc95xx kmod-usb-net-lan78xx
+            kmod-usb-net-dm9601-ether kmod-usb-net-sr9700
+            luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager
+            usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty
+            ethtool ip-full ip-bridge tcpdump lsof strace ppp chat iperf3 htop"
+          make image PROFILE="$PROFILE" PACKAGES="$(echo $PACKAGES)" \
+            FILES=files ROOTFS_PARTSIZE=512
+
+      - name: Validate image
+        working-directory: ib
+        run: |
+          OUT=bin/targets/$TARGET/$SUBTARGET
+          ls -lh "$OUT"
+          IMG=$(ls "$OUT"/*orangepi-zero3*sdcard.img.gz | head -1)
+          MAN=$(ls "$OUT"/*orangepi-zero3*.manifest | head -1)
+
+          echo "== packages =="
+          for p in kmod-uwe5622 uwe5622-firmware kmod-amneziawg luci-theme-footstrap \
+                   libiwinfo-data kmod-cfg80211 wpad-basic-mbedtls; do
+            grep "^$p " "$MAN" || { echo "MISSING $p"; exit 1; }
+          done
+          if grep -qE '^(openvpn-[a-z]+|luci-app-openvpn) ' "$MAN"; then
+            echo "OpenVPN in image"; exit 1; fi
+
+          echo "== DTB inside the image's FIT kernel =="
+          gunzip -c "$IMG" > /tmp/img
+          START=$(sfdisk -J /tmp/img | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["partitiontable"]["partitions"][0]["start"])')
+          mcopy -i "/tmp/img@@$((START * 512))" ::uImage /tmp/uImage
+          # a FIT image is itself a flattened device tree
+          FDT=$(fdtget -l /tmp/uImage /images | grep '^fdt' | head -1)
+          echo "FIT images: $(fdtget -l /tmp/uImage /images | tr '\n' ' ')"
+          fdtget -t bx /tmp/uImage "/images/$FDT" data | python3 -c \
+            'import sys; sys.stdout.buffer.write(bytes(int(b, 16) for b in sys.stdin.read().split()))' \
+            > /tmp/fit.dtb
+          test "$(fdtget /tmp/fit.dtb /soc/mmc@4021000 status)" = okay
+          fdtget -l /tmp/fit.dtb / | grep -q wifi-pwrseq
+          echo "  OK      mmc1 okay, wifi-pwrseq present"
+
+          echo "== rootfs =="
+          ROOT=$(find build_dir -maxdepth 2 -type d -name 'root-*' | head -1)
+          test -f "$ROOT/etc/apk/keys/$KEY_NAME.pem"
+          grep -qx "$REPO_URL" "$ROOT/etc/apk/repositories.d/customfeeds.list"
+          test -f "$ROOT/etc/uwe5622.options"
+          test -x "$ROOT/usr/sbin/uwe5622-recover"
+          test -f "$ROOT/etc/hotplug.d/platform/50-uwe5622-recover"
+          grep -q 'insmod sprdwl_ng disable_powersave=1' "$ROOT/etc/init.d/sprdwl-delay"
+          grep -q '"platform:unisoc_wifi"' "$ROOT/usr/share/libiwinfo/devices.txt"
+          echo "  OK      key, repo, driver files, iwinfo entry"
+
+      - name: Package ImageBuilder
+        run: |
+          # ready-to-use ImageBuilder: Wi-Fi DTB, our packages, key and repo
+          rm -rf ib/bin ib/tmp ib/dl
+          find ib/build_dir -maxdepth 2 -type d -name 'root-*' -exec rm -rf {} +
+          rm -rf ib/files
+          tar -C . -c ib --transform "s|^ib|$IB_NAME-opiz3|" | zstd -T0 -12 \
+            > "$IB_NAME-opiz3.tar.zst"
+          ls -lh "$IB_NAME-opiz3.tar.zst"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz3-image-${{ env.RELEASE }}
+          path: |
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero3*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz3-imagebuilder-${{ env.RELEASE }}
+          path: ${{ env.IB_NAME }}-opiz3.tar.zst
+          compression-level: 0
+
+  publish:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Signing key present?
+        id: key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          if [ -n "$APK_SIGN_KEY" ]; then
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::APK_SIGN_KEY not set; packages were signed with a throw-away key, not publishing"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.key.outputs.ok
+        with:
+          path: art
+
+      - name: Site
+        if: steps.key.outputs.ok
+        run: |
+          D=site/$RELEASE/$TARGET-$SUBTARGET
+          mkdir -p "$D" site/keys
+          cp art/apk-repo/repo/* "$D/"
+          cp "art/apk-repo/$KEY_NAME.pem" site/keys/
+          touch site/.nojekyll
+          OWNER=${GITHUB_REPOSITORY%%/*}; REPO=${GITHUB_REPOSITORY#*/}
+          BASE="https://$OWNER.github.io/$REPO"
+          PKGS=$(ls "$D" | grep '\.apk$' | sed 's/\.apk$//' | tr '\n' ' ')
+          cat > site/index.html <<EOF
+          <!doctype html><meta charset="utf-8"><title>opiz3-wlan apk repo</title>
+          <h1>Orange Pi Zero 3: OpenWrt $RELEASE apk repository</h1>
+          <p>Images from this project already trust it. On another OpenWrt $RELEASE sunxi/cortexa53 system:</p>
+          <pre>wget -O /etc/apk/keys/$KEY_NAME.pem $BASE/keys/$KEY_NAME.pem
+          echo $BASE/$RELEASE/$TARGET-$SUBTARGET/packages.adb &gt;&gt; /etc/apk/repositories.d/customfeeds.list
+          apk update</pre>
+          <p>Packages: $PKGS</p>
+          EOF
+          find site -type f | sort
+
+      - name: Push gh-pages
+        if: steps.key.outputs.ok
+        run: |
+          cd site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "apk repo for $RELEASE from ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" gh-pages
+
+      - name: Rolling release
+        if: steps.key.outputs.ok
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=opiz3-$RELEASE-latest
+          OWNER=${GITHUB_REPOSITORY%%/*}; REPO=${GITHUB_REPOSITORY#*/}
+          cat > notes.md <<EOF
+          Official OpenWrt $RELEASE kernel: every kmod from downloads.openwrt.org installs with apk.
+          Extra packages (UWE5622 driver, AmneziaWG, Footstrap, iwinfo) come from https://$OWNER.github.io/$REPO/ ,
+          which the image already trusts.
+
+          The ImageBuilder archive already carries the Wi-Fi DTB, these packages, the signing key and the repository:
+
+              make image PROFILE=$PROFILE PACKAGES="kmod-uwe5622 uwe5622-firmware wpad-basic-mbedtls luci ..."
+
+          Built from ${GITHUB_SHA}.
+          EOF
+          gh release delete "$TAG" --cleanup-tag -y -R "$GITHUB_REPOSITORY" || true
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Orange Pi Zero 3 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}" \
+            --notes-file notes.md \
+            art/opiz3-image-$RELEASE/* \
+            art/opiz3-imagebuilder-$RELEASE/*
