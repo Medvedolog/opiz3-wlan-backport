@@ -169,8 +169,7 @@ jobs:
           CONFIG_PACKAGE_kmod-wireguard=y
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
-          CONFIG_PACKAGE_openvpn-mbedtls=y
-          CONFIG_PACKAGE_luci-app-openvpn=y
+          # kmod-tun: TUN mode for sing-box (Podkop/Forkop); OpenVPN dropped
           CONFIG_PACKAGE_kmod-tun=y
 
           # Podkop/Forkop runtime dependency superset. Do not install either
@@ -269,7 +268,7 @@ jobs:
             kmod-ath6kl-usb kmod-brcmfmac \
             kmod-amneziawg amneziawg-tools luci-app-amneziawg \
             kmod-wireguard wireguard-tools luci-proto-wireguard \
-            openvpn-mbedtls luci-app-openvpn kmod-tun \
+            kmod-tun \
             sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables \
             kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat \
             kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci \
@@ -333,7 +332,7 @@ jobs:
             kmod-ath6kl-usb kmod-brcmfmac \
             kmod-amneziawg amneziawg-tools luci-app-amneziawg \
             kmod-wireguard wireguard-tools luci-proto-wireguard \
-            openvpn-mbedtls luci-app-openvpn kmod-tun \
+            kmod-tun \
             sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables \
             kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat \
             kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci \
@@ -379,6 +378,13 @@ jobs:
           grep -q '"platform:unisoc_wifi"' "$IWDB"
           grep -q 'device/modalias' "$(dirname "$IWDB")/iwinfo_nl80211.c"
           printf '  OK      iwinfo modalias fallback + UWE5622 entry\n'
+
+          echo "== OpenVPN excluded =="
+          if grep -qE '^(openvpn-[a-z]+|luci-app-openvpn) ' "$MANIFEST"; then
+            echo "ERROR: OpenVPN packages present in image" >&2
+            exit 1
+          fi
+          printf '  OK      no OpenVPN packages\n'
 
           echo "== Footstrap default payload =="
           test -x files/etc/uci-defaults/zz-opiz3-footstrap-default
