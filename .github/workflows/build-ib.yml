@@ -104,8 +104,12 @@ jobs:
 
           # iwinfo: our patch, and a higher release so it wins over the
           # official build of the same version
-          # the SDK's base feed is OpenWrt's package/ dir itself
-          IW=$(dirname "$(find feeds/base -path '*/utils/iwinfo/Makefile' | head -1)")
+          # follow the link "feeds install" created; feeds/base itself may be a link
+          IW=$(readlink -f package/feeds/base/iwinfo || true)
+          if [ ! -f "$IW/Makefile" ]; then
+            ls -la feeds/ package/feeds/ 2>&1 | head -20 || true
+            IW=$(dirname "$(find -L feeds -path '*/utils/iwinfo/Makefile' | head -1)")
+          fi
           test -f "$IW/Makefile"
           echo "iwinfo package: $IW"
           mkdir -p "$IW/patches"
