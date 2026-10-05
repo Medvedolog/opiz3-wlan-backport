@@ -2032,3 +2032,202 @@ The minimal firmware-side change that would expose the per-peer TX rate is small
 | ROM provides response/event senders and RSSI readers | High |
 | context type 0 = STA, 2 = P2P client (exact enum values) | Medium |
 | meaning of `0x0021816e` for AP-side peers | Unknown (ROM) |
+
+---
+
+# Revision 3 — station table, per-peer RSSI, channel handling, host access
+
+Same image as before (MARLIN3_19B_W21.05.3, linked at `0x00100000`). Driver
+patches referenced below live in `package/kernel/uwe5622/patches/`; the
+protocol summary for a new driver is in `docs/NEW-DRIVER-ARCHITECTURE.md`.
+
+## 44. AP channel comes from the beacon IEs in `START_AP` (`0x001431ec`)
+
+```c
+ds = find_ie(head, 3 /* DS Parameter Set */, &len, head_len);  /* ROM 0x209846 */
+if (ds && len > 0 && ds[2] - 1 <= 13) {                          /* channel 1..14 */
+        vht = find_ie(head, 0xc0 /* VHT Operation */, &len, head_len);
+        if (vht && len > 0)
+                vht[0] = 0xff;                                     /* hide VHT op on 2.4 GHz */
+}
+rom_start_ap(...);                                                 /* ROM 0x209ac4 */
+```
+
+- The firmware derives the AP channel from the DS Parameter Set IE of the
+  beacon head. hostapd does not put a DS IE into 5 GHz beacons, so without
+  it the firmware programs no valid channel. DeepAQ's fix (append a DS IE
+  built from the HT Operation primary channel) is ported as patch 180 and
+  verified on hardware: 5 GHz ch36 HT20 and VHT80 start with `ret=0`.
+- `WIFI_CMD_SET_CHANNEL` (0x07) carries only a `u8` primary channel; it
+  cannot describe width or centre frequency.
+
+## 45. RF code asserts instead of rejecting a channel
+
+- `0x00157c20` (RF channel set, `rf_marlin.c:1010`) asserts on
+  `!(IS_2G_CHANNEL(pri20) || IS_5G_CHANNEL(center))`; it starts with the
+  `ch - 1 <= 13` 2.4 GHz test.
+- The channel-context switch callback `0x00151f7a` (`base_chan_clutch`)
+  applies the requested channel without validation.
+
+Consequence: anything the host lets through can kill the firmware, and the
+host does not recover by itself (§54). Patch 200 advertises only verified
+widths and channels so cfg80211 rejects the rest before it reaches the
+firmware.
+
+## 46. Rate-control station table: fixed address `0x0017e390`
+
+`0x00126128`:
+
+```asm
+ldr  r1, =0x17d68c
+ldr  r0, =0x17e390
+str  r0, [r1, #4]        ; *(0x17d690) = 0x17e390
+movw r1, #0x2420
+b.w  0x10bcc6            ; memset(0x17e390, 0, 0x2420)
+```
+
+- `T = 0x0017e390`, length `0x2420`: 16 station blocks of `0x228` bytes
+  (`15*0x228 + 0x194 + 0x228 = 0x2414 <= 0x2420`). The bytes at
+  `0x17d68c` in the file are code; the region is reused as data at run time.
+- With `sta = T + idx*0x228` (the base §40 adds `0x194` to), the formatter
+  fields in absolute offsets are: mode `sta+0x23d`, rate index
+  `sta+0x238` (modes 0/1: value - 1) or `sta+0x239`, rate set
+  `sta+0x1c0 + 5*index` (byte 0 descriptor code, byte 3 SGI), bandwidth
+  `sta+0x241` (1 = 40, 2 = 80 MHz), descriptor `T + 7*code`.
+
+## 47. The table index is the hardware LUT
+
+`0x001539b0(lut, out, clear)`:
+
+```c
+if (lut >= 0x20) return 0;
+mac_reg_lock(0x400f20bc);                            /* 0x400f20ec - 0x30 */
+src = *(*(u32 *)0x1201d8 + 0xc) + lut * 0x48;        /* MAC per-LUT TX statistics */
+memcpy(out, src, 0x48);
+if (clear) memset(src, 0, 0x48);
+mac_reg_unlock(0x400f20bc);
+```
+
+`0x00128554` (`ar_update_tx_statistic_info`, §36.2) calls it with the same
+index it uses for the station block. The rate-control index is therefore the
+hardware station LUT, the same number the host sees as `sta_lut_index` in
+`rx_msdu_desc`/`tx_msdu_dscr` and in `WIFI_EVENT_STA_LUT_INDEX`.
+
+## 48. Per-peer ACK RSSI (resolves §20)
+
+Chain: hardware TX statistics → station block → smoothed average.
+
+1. The 0x48-byte per-LUT block from §47 holds per-rate attempt/success
+   pairs, a **signed sum at `+0x40`** and a **count at `+0x44`** (u16).
+2. `0x00128554` adds them to the station block when the average fits a
+   signed byte (`(sum/count) + 0x80 <= 0xff`):
+   `sta+0x3a8 += sum` (s32), `sta+0x3a6 += count` (u16).
+   It also accumulates per-rate counters at `sta+0x284 + 12*i`
+   (`+4`, `+8`, 24 entries); `0x00126d54` computes `100*[+4]/[+8]` from them
+   and compares it with 35.
+3. `0x00126d54` (logs with the function name `find_rate0_idx_by_goodput`):
+
+```c
+if (count = *(u16 *)(sta+0x3a6)) {
+        avg = *(s32 *)(sta+0x3a8) / count;
+        if ((u32)(avg + 0x80) <= 0xff) {
+                if (sta[0x3a4] == 1)
+                        sta[0x3a5] = ((s8)sta[0x3a5] + avg) * 50 / 100;
+                else {
+                        sta[0x3a4] = 1;
+                        sta[0x3a5] = avg;
+                }
+        }
+        *(u16 *)(sta+0x3a6) = 0;
+        *(s32 *)(sta+0x3a8) = 0;
+}
+```
+
+A per-LUT, per-ACK signed value averaged and range-checked as `s8` is taken
+to be the client's **ACK RSSI in dBm**: valid flag `sta+0x3a4`, value
+`sta+0x3a5`. Confidence medium until compared on hardware with the
+client's own reading (patch 230 prints it as `rssi`).
+
+## 49. The rate-control block holds no MAC
+
+`0x001281fe` initialises a block when a station is added:
+`memset(sta+0x194, 0, 0x228)`, then `[+0x194] = 7`, clears bits 9..11 of
+`u16 [+0x1a8]`, `[+0x238] = 1`, `[+0x23a] = 0xfb` (if the second argument is
+set), `[+0x1c0] = 0x12631c()`, `[+0x239] = 0`, `[+0x241] = 0`,
+`[+0x280] = 0`, `[+0x281] = 0x63`, `[+0x282] = 0xc6`. No 6-byte copy into the
+block exists anywhere in the users of `0x17d68c`. The MAC lives in the ROM
+station structure (`rom_sta_entry`, `0x002143dc`, first byte = index). To
+attribute a block to a client use the LUT (§47) and the host's
+`peer_entry[lut]` MAC (patch 230 prints it as `lut-peer`).
+
+## 50. `GET_STATION` signal path details
+
+In addition to §39: `0x00236694(ctx)` returns the current channel; for
+channel `>= 36` the 5 GHz offset `0x00218b06(ctx)` is added; the result is
+clamped to `-100..63`, the RF RSSI offset `0x00131f8a(channel)` is added
+and positive values are forced to 0. The AP/GO rejection is the
+`tst r0, #0xfd` context-type test at the start of the handler: a one-site
+patch point if firmware modification is ever attempted (§42).
+
+## 51. Host access to CP memory
+
+- Bus address = CP address + `0x40400000`: the image linked at `0x100000` is
+  downloaded to `0x40500000`, and the UWE5622 sync block sits right after it
+  at `SYNC_ADDR 0x405E73B0` (`0x40500000 + 0xE73B0`, the image size). The
+  BSP's UWE5622 dump table also reads `0x100000` directly.
+- Read path: `sprdwcn_bus_direct_read()` → `sdiohal_dt_read()`. On sunxi a
+  failed direct transfer sets `dt_rw_fail` and the card-dump status, after
+  which every later direct transfer fails and `start_marlin()` refuses to
+  run: Wi-Fi is gone until the BSP is reloaded. Read only proven addresses.
+  The early `dt_rw_fail` return also leaked the card reference (fixed by
+  patch 220).
+- Patch 230 (`cp_sta_table` in debugfs) reads `*(0x17d690)` first and only
+  reads the table when it equals `0x17e390`.
+
+## 52. No per-frame rate/RSSI on the SDIO RX path
+
+`struct rx_mh_desc` (`data_rate`, `rss1/rss2`, `snr1/snr2/snr_combo`,
+`phy_rx_mode`) precedes the MSDU only on PCIe (`mm.c`, address-buffer
+path). On SDIO the buffer is `sdiohal_puh` + `rx_msdu_desc` (28 bytes) +
+frame. The only possible carrier is a gap when `msdu_offset > 28`; patch 210
+(`rx_desc_dump`) records the `msdu_offset` range and raw bytes to check.
+
+## 53. Image integrity
+
+No signature or checksum check of `wcnmodem.bin` was found on the host side.
+`CONFIG_AW_BIND_VERIFY` is a chip-binding handshake (16 bytes read from the
+sync block, transformed, written back), not an image check. Whether the CP
+boot ROM checks the image is unknown; a one-byte change in an unused string
+would answer it.
+
+## 54. Assert and recovery flow (host)
+
+With `CONFIG_CP2_ASSERT = 0` (default in `wcn_procfs.c`):
+
+1. CP assert message (`mdbg_assert_read`) or a host-detected command timeout
+   (`sprdwl_atcmd_assert` → `mdbg_assert_interface`) stops loopcheck,
+   notifies subscribers (`marlin_reset_notify_call(ASSERTED)`) and calls
+   `marlin_cp2_reset()` (power off Wi-Fi and BT).
+2. On Allwinner (`CONFIG_WCN_POWER_UP_DOWN`) power-off is real:
+   `chip_power_off()` unregisters the SDIO driver and removes the card.
+3. `sprdwl_ng` (`CP2_RESET_SUPPORT`) stops its TX thread and sends a
+   `change` uevent on the `unisoc_wifi` platform device.
+4. The vendor expects an Android daemon to reload the driver; the next
+   `start_marlin()` powers on, rescans SDIO and downloads the firmware again.
+
+OpenWrt has no such daemon. `uwe5622-recover` + the hotplug handler do the
+reload (package files, commit `cb13d24`).
+
+## 55. Confidence (revision 3)
+
+| Finding | Confidence |
+|---|---|
+| AP channel from the DS IE in START_AP; VHT op hidden on 2.4 GHz | High (code + hardware) |
+| RF assert on unprogrammable channel, no validation in the switch callback | High |
+| station table at `0x17e390`, 16 x `0x228` | High |
+| table index = hardware LUT | High |
+| ACK RSSI at `sta+0x3a5` (valid `+0x3a4`) | Medium, pending hardware comparison |
+| no MAC in the rate-control block | High |
+| bus = CP + `0x40400000`, `SYNC_ADDR` derivation | High |
+| no per-frame rate/RSSI on SDIO RX | High (unless the `msdu_offset` gap carries it) |
+| no host-side image signature | High; CP boot ROM unknown |
