@@ -213,7 +213,8 @@ the firmware's behaviour stayed as they were.
 | Client statistics | Vendor driver returns the radio's own values for every client | Only what is really measured: host counters per client (150); no fake RSSI/rate (120, 140) |
 | Firmware-crashing settings | Accepted | Blocked in cfg80211 (200) |
 | Firmware crash | Vendor driver does not recover: Wi-Fi dead until reboot | Automatic driver reload, rate-limited (`uwe5622-recover`) |
-| Name in LuCI | "Generic" | "Unisoc UWE5622" (iwinfo patch) |
+| Name in LuCI | "Generic" | "Unisoc UWE5622" (iwinfo patch; also in the `iwinfo` CLI) |
+| Board status | None | LuCI Overview panel: SoC temperatures, CPU frequency, Wi-Fi driver state, SDIO bus clock, firmware recoveries (`luci-app-opiz3-status`) |
 | Firmware internals | Unknown | Reverse engineered, published ([notes](docs/WCNMODEM-REVERSE-ENGINEERING.md)) |
 | Build | Manual steps | CI: SDK + ImageBuilder, signed repo, image checks |
 
@@ -280,6 +281,11 @@ Applied on top of `armbian/uwe5622@cc2835a` in
 | 210 | `rx_desc_dump` debugfs (RX descriptor survey) |
 | 220 | Release the card reference on the `dt_rw_fail` early return |
 | 230 | `cp_sta_table` debugfs: firmware per-station rate/RSSI state |
+| 240 | Per-client TX rate from the firmware rate-control table (`cp_txrate=1`, off by default) |
+| 250 | BSP: unregister the SDIO driver on Allwinner, so a driver reload works (no `-EBUSY`) |
+| 260 | `cp_mem` debugfs: read-only dump of the firmware data area (RE) |
+| 270 | Per-client bytes and packets (host counters) |
+| 280 | Quiet `wifi up`: antenna/TX power/distance calls accepted instead of `-95`/`-12`; phy MAC (no `00:00:00…`); TCP/UDP checksum features without the "mixed HW and IP checksum" warning |
 
 Further pieces:
 
@@ -289,6 +295,14 @@ Further pieces:
   [`scripts/zero3-dtb-add-wifi.py`](scripts/zero3-dtb-add-wifi.py) produces
   the same result on the official DTB.
 - **iwinfo patch 900:** identifies platform Wi-Fi devices by modalias.
+  The 25.12 `iwinfo` command line tool is a ucode script with its own
+  device table; `uwe5622-iwinfo-name` (run at boot) adds the same modalias
+  fallback there.
+- **`luci-app-opiz3-status`:** a "Board" panel on Status → Overview. Data
+  comes from an rpcd ucode plugin (`ubus call luci.opiz3 status`) that only
+  reads sysfs/debugfs, never the chip. TX power is not shown anywhere as a
+  number: the firmware takes it from its ini file and has no command to
+  read it back, so LuCI keeps showing no value rather than an invented one.
 
 ## Building
 

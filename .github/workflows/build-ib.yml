@@ -61,7 +61,7 @@ env:
   OWN_PACKAGES: >-
     kmod-uwe5622 uwe5622-firmware
     kmod-amneziawg amneziawg-tools luci-app-amneziawg
-    luci-theme-footstrap
+    luci-theme-footstrap luci-app-opiz3-status
     iwinfo libiwinfo libiwinfo-data
 
 jobs:
@@ -180,6 +180,8 @@ jobs:
           mkdir -p package/firmware
           cp -r ../package/firmware/uwe5622-firmware package/firmware/
           chmod +x package/kernel/uwe5622/files/*
+          rm -rf package/luci-app-opiz3-status
+          cp -r ../package/luci/luci-app-opiz3-status package/
 
           # iwinfo: our patch on the official package's source version
           # follow the link "feeds install" created; feeds/base itself may be a link
@@ -213,6 +215,12 @@ jobs:
             rm -rf "package/$p"
             cp -a "/tmp/awg/$p" package/
           done
+          # luci.mk takes the version from git, which the copy does not
+          # have, so the package came out as version 0: use the module's
+          AWG_VERSION=$(sed -n 's/^PKG_VERSION:=//p' package/kmod-amneziawg/Makefile)
+          sed -i "s|^include \$(TOPDIR)/feeds/luci/luci.mk|PKG_VERSION:=$AWG_VERSION\nPKG_RELEASE:=1\n\n&|" \
+            package/luci-app-amneziawg/Makefile
+          grep -n '^PKG_VERSION:=' package/luci-app-amneziawg/Makefile
 
           # feeds install already scanned the tree; mac80211 comes from a
           # tarball with old mtimes, so drop the cached package index to
@@ -236,6 +244,7 @@ jobs:
           CONFIG_PACKAGE_amneziawg-tools=m
           CONFIG_PACKAGE_luci-app-amneziawg=m
           CONFIG_PACKAGE_luci-theme-footstrap=m
+          CONFIG_PACKAGE_luci-app-opiz3-status=m
           CONFIG_PACKAGE_iwinfo=m
           CONFIG_PACKAGE_libiwinfo=m
           CONFIG_PACKAGE_libiwinfo-data=m
@@ -265,6 +274,7 @@ jobs:
             package/kmod-amneziawg/compile package/amneziawg-tools/compile \
             package/luci-app-amneziawg/compile \
             package/luci-theme-footstrap/compile \
+            package/luci-app-opiz3-status/compile \
             package/feeds/base/iwinfo/compile > logs/build.log 2>&1 || {
               tail -200 logs/build.log; exit 1; }
           # what was actually built, and how long each part took
@@ -424,7 +434,7 @@ jobs:
             kmod-rtw88-8821au kmod-rtw88-8812au kmod-rtw88-8814au kmod-rtw88-8821cu
             kmod-rtw88-8822bu kmod-rtw88-8822cu kmod-rtw88-8723du
             kmod-ath9k-htc kmod-ath6kl-usb kmod-brcmfmac
-            luci luci-ssl luci-theme-footstrap luci-theme-bootstrap
+            luci luci-ssl luci-theme-footstrap luci-theme-bootstrap luci-app-opiz3-status
             kmod-amneziawg amneziawg-tools luci-app-amneziawg
             kmod-wireguard wireguard-tools luci-proto-wireguard kmod-tun
             sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables-json
@@ -462,7 +472,7 @@ jobs:
           MAN=$(ls "$OUT"/*orangepi-$name.manifest | head -1)
 
           echo "== packages =="
-          for p in kmod-uwe5622 uwe5622-firmware kmod-amneziawg luci-theme-footstrap \
+          for p in kmod-uwe5622 uwe5622-firmware kmod-amneziawg luci-theme-footstrap luci-app-opiz3-status \
                    libiwinfo-data kmod-cfg80211 wpad-basic-mbedtls; do
             grep "^$p " "$MAN" || { echo "MISSING $p"; exit 1; }
           done
@@ -500,6 +510,11 @@ jobs:
           chk 'test -f "$ROOT/etc/hotplug.d/platform/50-uwe5622-recover"'
           chk 'grep -q "insmod sprdwl_ng disable_powersave=1" "$ROOT/etc/init.d/sprdwl-delay"'
           chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
+          chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
+          chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
+          chk 'test -f "$ROOT/usr/share/rpcd/ucode/opiz3.uc"'
+          chk 'test -f "$ROOT/www/luci-static/resources/view/status/include/15_opiz3.js"'
+          chk '! grep -q "^luci-app-amneziawg 0" "$MAN"'
           chk 'strings "$ROOT"/usr/lib/libiwinfo.so* | grep -q device/modalias'
           grep -E '^(iwinfo|libiwinfo)' "$MAN"
           test "$FAILED" = 0

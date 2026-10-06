@@ -1,0 +1,145 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: quiet wifi-scripts, phy MAC, checksum features
+
+- set_antenna/get_antenna: one antenna by default (the 1ant ini), accept
+  the "all"/current mask wifi-scripts sets on every start, refuse others.
+- set_tx_power: accept "auto", refuse fixed/limited (the firmware takes its
+  power from the ini; there is no host interface to set or read it).
+- set_wiphy_params: ignore changes without RTS/fragmentation thresholds,
+  e.g. the coverage class from "iw phy set distance".
+  Together these remove the "command failed: Not supported (-95)" and
+  "Out of memory (-12)" lines netifd logged on every "wifi up".
+- wiphy->perm_addr from the firmware MAC, so phy0/macaddress is not
+  00:00:00:00:00:00.
+- NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM instead of NETIF_F_CSUM_MASK: the
+  firmware offloads TCP/UDP checksums only, and the mask's HW_CSUM made the
+  core warn "mixed HW and IP checksum settings".
+
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 7cb67cb..39508c4 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -2727,6 +2727,13 @@ static int sprdwl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)
+ 	struct sprdwl_priv *priv = wiphy_priv(wiphy);
+ 	u32 rts = 0, frag = 0;
+ 
++	/* the firmware takes RTS and fragmentation thresholds only; the
++	 * coverage class from "iw phy set distance" has nowhere to go
++	 */
++	if (!(changed & (WIPHY_PARAM_RTS_THRESHOLD |
++			 WIPHY_PARAM_FRAG_THRESHOLD)))
++		return 0;
++
+ 	if (changed & WIPHY_PARAM_RTS_THRESHOLD)
+ 		rts = wiphy->rts_threshold;
+ 
+@@ -2736,6 +2743,59 @@ static int sprdwl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)
+ 	return sprdwl_set_param(priv, rts, frag);
+ }
+ 
++/* One antenna (wifi_2355b001_1ant.ini) and no way to change it or the
++ * transmit power from the host (the firmware takes its power from the ini).
++ * wifi-scripts run "iw phy set antenna all all" and "set txpower auto" on
++ * every start; accept what is already in effect instead of failing them with
++ * EOPNOTSUPP, refuse anything else.
++ */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0) || \
++	defined(OPENWRT_CFG80211_BACKPORT)
++static int sprdwl_cfg80211_set_antenna(struct wiphy *wiphy, int radio_idx,
++				       u32 tx_ant, u32 rx_ant)
++#else
++static int sprdwl_cfg80211_set_antenna(struct wiphy *wiphy,
++				       u32 tx_ant, u32 rx_ant)
++#endif
++{
++	/* cfg80211 has masked them with available_antennas_tx/rx */
++	if (tx_ant != wiphy->available_antennas_tx ||
++	    rx_ant != wiphy->available_antennas_rx)
++		return -EOPNOTSUPP;
++	return 0;
++}
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0) || \
++	defined(OPENWRT_CFG80211_BACKPORT)
++static int sprdwl_cfg80211_get_antenna(struct wiphy *wiphy, int radio_idx,
++				       u32 *tx_ant, u32 *rx_ant)
++#else
++static int sprdwl_cfg80211_get_antenna(struct wiphy *wiphy,
++				       u32 *tx_ant, u32 *rx_ant)
++#endif
++{
++	*tx_ant = wiphy->available_antennas_tx;
++	*rx_ant = wiphy->available_antennas_rx;
++	return 0;
++}
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0) || \
++	defined(OPENWRT_CFG80211_BACKPORT)
++static int sprdwl_cfg80211_set_tx_power(struct wiphy *wiphy,
++					struct wireless_dev *wdev,
++					int radio_idx,
++					enum nl80211_tx_power_setting type,
++					int mbm)
++#else
++static int sprdwl_cfg80211_set_tx_power(struct wiphy *wiphy,
++					struct wireless_dev *wdev,
++					enum nl80211_tx_power_setting type,
++					int mbm)
++#endif
++{
++	return type == NL80211_TX_POWER_AUTOMATIC ? 0 : -EOPNOTSUPP;
++}
++
+ static int sprdwl_cfg80211_set_pmksa(struct wiphy *wiphy,
+ 				     struct net_device *ndev,
+ 				     struct cfg80211_pmksa *pmksa)
+@@ -4074,6 +4134,9 @@ static struct cfg80211_ops sprdwl_cfg80211_ops = {
+ 	.leave_ibss = sprdwl_cfg80211_leave_ibss,
+ #endif /* IBSS_SUPPORT */
+ 	.set_wiphy_params = sprdwl_cfg80211_set_wiphy_params,
++	.set_antenna = sprdwl_cfg80211_set_antenna,
++	.get_antenna = sprdwl_cfg80211_get_antenna,
++	.set_tx_power = sprdwl_cfg80211_set_tx_power,
+ 	.set_pmksa = sprdwl_cfg80211_set_pmksa,
+ 	.del_pmksa = sprdwl_cfg80211_del_pmksa,
+ 	.flush_pmksa = sprdwl_cfg80211_flush_pmksa,
+@@ -4564,6 +4627,9 @@ void sprdwl_setup_wiphy(struct wiphy *wiphy, struct sprdwl_priv *priv)
+ #else
+ 	wiphy->bands[IEEE80211_BAND_2GHZ] = &sprdwl_band_2ghz;
+ #endif
++	/* one antenna unless the firmware says otherwise (below) */
++	wiphy->available_antennas_tx = 1;
++	wiphy->available_antennas_rx = 1;
+ 	if (priv->wiphy_sec2_flag) {
+ 		/*update HT capa got from fw*/
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)
+diff --git a/unisocwifi/main.c b/unisocwifi/main.c
+index d0e229c..429b35c 100644
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -1437,7 +1437,11 @@ static struct sprdwl_vif *sprdwl_register_netdev(struct sprdwl_priv *priv,
+ 	ndev->needed_headroom = priv->skb_head_len;
+ 	ndev->watchdog_timeo = 2 * HZ;
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)
+-	ndev->features |= NETIF_F_CSUM_MASK;
++	/* the firmware offloads TCP and UDP checksums only (see
++	 * sprdwl_intf_fill_msdu_dscr); NETIF_F_CSUM_MASK also has NETIF_F_HW_CSUM,
++	 * which the core warns about and keeps instead of these two
++	 */
++	ndev->features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+ #else
+ 	ndev->features |= NETIF_F_ALL_CSUM;
+ #endif
+@@ -1589,6 +1593,11 @@ int sprdwl_core_init(struct device *dev, struct sprdwl_priv *priv)
+ 	sprdwl_setup_wiphy(wiphy, priv);
+ 	sprdwl_vendor_init(wiphy);
+ 	set_wiphy_dev(wiphy, dev);
++	/* the phy's own address (/sys/class/ieee80211/phy0/macaddress),
++	 * otherwise 00:00:00:00:00:00
++	 */
++	if (is_valid_ether_addr(priv->mac_addr))
++		memcpy(wiphy->perm_addr, priv->mac_addr, ETH_ALEN);
+ 	ret = wiphy_register(wiphy);
+ 	if (ret) {
+ 		wl_err("failed to regitster wiphy(%d)!\n", ret);

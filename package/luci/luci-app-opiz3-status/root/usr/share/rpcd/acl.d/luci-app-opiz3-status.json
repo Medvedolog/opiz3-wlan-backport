@@ -1,0 +1,10 @@
+{
+	"luci-app-opiz3-status": {
+		"description": "Board status: temperatures, CPU frequency, Wi-Fi driver",
+		"read": {
+			"ubus": {
+				"luci.opiz3": [ "status" ]
+			}
+		}
+	}
+}

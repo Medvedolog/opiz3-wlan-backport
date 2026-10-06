@@ -1,0 +1,19 @@
+#!/bin/sh
+# Name the radio in the "iwinfo" command line tool.
+#
+# The 25.12 CLI (/usr/share/ucode/iwinfo.uc, from wifi-scripts) names a
+# device by PCI id or by the device tree "compatible" of its node. Our
+# radio is a platform device without either, so it shows up as
+# "Generic MAC80211". Add a fallback on the device's modalias, as patch 900
+# of libiwinfo does for LuCI. Runs at every boot (sprdwl-delay), so it is
+# applied again after wifi-scripts is upgraded.
+
+F=/usr/share/ucode/iwinfo.uc
+[ -f "$F" ] || exit 0
+grep -q 'platform:unisoc_wifi' "$F" && exit 0
+grep -q '^	return hw;$' "$F" || exit 0
+
+sed -i '/^	return hw;$/i\
+	if (hw.id == '"'"'Generic MAC80211'"'"' && index(readfile(path + '"'"'modalias'"'"') ?? '"'"''"'"', '"'"'platform:unisoc_wifi'"'"') == 0)\
+		hw.id = '"'"'Unisoc UWE5622'"'"';\
+' "$F"
