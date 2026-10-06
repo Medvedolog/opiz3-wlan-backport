@@ -333,6 +333,21 @@ Further pieces:
   number: the firmware takes it from its ini file and has no command to
   read it back, so LuCI keeps showing no value rather than an invented one.
 
+## Moving to Medvedolog/opiz3-wlan-backport
+
+Releases after beta 1 are built in
+[Medvedolog/opiz3-wlan-backport](https://github.com/Medvedolog/opiz3-wlan-backport)
+(branch `main`), with the same signing key. Images from beta 1 and earlier
+use the package repository of the croissantpie12 fork; it stays online. To
+switch an installed board to the new repository:
+
+```sh
+sed -i 's#croissantpie12.github.io#medvedolog.github.io#' /etc/apk/repositories.d/customfeeds.list
+apk update && apk upgrade
+```
+
+The key is the same, so no new key is needed.
+
 ## Building
 
 Two workflows in `.github/workflows/`:
