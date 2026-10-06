@@ -3,7 +3,8 @@
 		"description": "Board status: temperatures, CPU frequency, Wi-Fi driver",
 		"read": {
 			"ubus": {
-				"luci.opiz3": [ "status" ]
+				"luci.opiz3": [ "status" ],
+				"iwinfo": [ "info", "assoclist" ]
 			}
 		}
 	}

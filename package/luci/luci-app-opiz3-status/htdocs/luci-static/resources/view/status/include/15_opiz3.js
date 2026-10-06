@@ -7,6 +7,19 @@ var callStatus = rpc.declare({
 	method: 'status'
 });
 
+var callIwinfoInfo = rpc.declare({
+	object: 'iwinfo',
+	method: 'info',
+	params: [ 'device' ]
+});
+
+var callIwinfoAssoc = rpc.declare({
+	object: 'iwinfo',
+	method: 'assoclist',
+	params: [ 'device' ],
+	expect: { results: [] }
+});
+
 var zoneNames = {
 	'cpu-thermal': _('CPU'),
 	'gpu-thermal': _('GPU'),
@@ -30,7 +43,20 @@ return baseclass.extend({
 	title: _('Board'),
 
 	load: function() {
-		return L.resolveDefault(callStatus(), {});
+		return L.resolveDefault(callStatus(), {}).then(function(st) {
+			var ifs = ((st.wifi || {}).ifaces || []);
+			return Promise.all(ifs.map(function(ifname) {
+				return Promise.all([
+					L.resolveDefault(callIwinfoInfo(ifname), {}),
+					L.resolveDefault(callIwinfoAssoc(ifname), [])
+				]).then(function(r) {
+					return { ifname: ifname, info: r[0], assoc: r[1] };
+				});
+			})).then(function(ifaces) {
+				st.ifaces = ifaces;
+				return st;
+			});
+		});
 	},
 
 	render: function(st) {
@@ -64,6 +90,41 @@ return baseclass.extend({
 			rows.push([ _('Wi-Fi SDIO bus'), '%d MHz'.format(w.sdio.clock / 1000000) +
 				(w.sdio.width ? ', %d-bit'.format(w.sdio.width) : '') +
 				(w.sdio.timing ? ', ' + w.sdio.timing : '') ]);
+
+		if (w.firmware)
+			rows.push([ _('Wi-Fi firmware'), w.firmware ]);
+
+		/* the host width (what cfg80211/hostapd configured) next to the width
+		 * the firmware uses per client, which can differ (it was seen at
+		 * 80 MHz with the host at 20); the latter needs cp_txrate=1 */
+		var cpRate = /^(Y|1)$/.test((w.params || {}).cp_txrate || '');
+		(st.ifaces || []).forEach(function(i) {
+			var info = i.info || {};
+			if (!info.channel)
+				return;
+			rows.push([ _('Wi-Fi channel') + ' (' + i.ifname + ')',
+				_('channel %d (%d MHz), host width: %s').format(info.channel,
+					info.frequency, info.htmode || '?') ]);
+
+			var cl = (i.assoc || []).map(function(a) {
+				var tx = a.tx || {};
+				if (!cpRate || !tx.rate)
+					return null;
+				return a.mac + ': ' + (tx.mhz ? tx.mhz + ' MHz' : '?') +
+					(tx.vht ? ', VHT-MCS ' + tx.mcs + ' ' + tx.nss + 'SS' : (tx.mcs != null ? ', MCS ' + tx.mcs : '')) +
+					', %.1f Mbit/s'.format(tx.rate / 1000);
+			}).filter(function(x) { return x; });
+
+			if (!(i.assoc || []).length)
+				return;
+			rows.push([ _('Wi-Fi width used by the firmware'),
+				cpRate ? (cl.length ? E('span', {}, cl.reduce(function(acc, c, n) {
+					if (n) acc.push(E('br'));
+					acc.push(c);
+					return acc;
+				}, [])) : _('no rate yet')) :
+				_('unknown: set cp_txrate=1 in /etc/uwe5622.options') ]);
+		});
 
 		var params = Object.keys(w.params || {}).map(function(k) {
 			return k + '=' + w.params[k];

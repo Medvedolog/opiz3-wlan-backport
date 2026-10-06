@@ -63,6 +63,23 @@ function sdio() {
 	return r;
 }
 
+// "Platform Version: MARLIN3_19B_W21.05.3" is embedded in the firmware file
+// the BSP downloads; read once per rpcd start
+let fw_version_cache;
+function fw_version() {
+	if (fw_version_cache == null) {
+		fw_version_cache = '';
+		let fw = readfile('/lib/firmware/uwe5622/wcnmodem.bin');
+		let i = fw ? index(fw, 'Platform Version:') : -1;
+		if (i >= 0) {
+			let m = match(substr(fw, i, 80), /^Platform Version:[ \t]*([A-Za-z0-9_.\-]+)/);
+			if (m)
+				fw_version_cache = m[1];
+		}
+	}
+	return fw_version_cache;
+}
+
 function wifi() {
 	let w = {
 		bsp: !!stat('/sys/module/uwe5622_bsp_sdio'),
@@ -78,6 +95,9 @@ function wifi() {
 		if (dev && match(dev, /unisoc_wifi$/)) {
 			w.phy = phy;
 			w.mac = rd(`/sys/class/ieee80211/${phy}/macaddress`);
+			// its network interfaces (phy0-ap0, ...), for iwinfo in the page
+			w.ifaces = filter(sort(lsdir(`/sys/class/ieee80211/${phy}/device/net`) ?? []),
+				(n) => stat(`/sys/class/net/${n}/phy80211`));
 			break;
 		}
 	}
@@ -97,6 +117,7 @@ function wifi() {
 	}
 
 	w.sdio = sdio();
+	w.firmware = fw_version();
 	return w;
 }
 
