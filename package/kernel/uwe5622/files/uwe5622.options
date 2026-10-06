@@ -10,3 +10,9 @@
 # Unverified settings can make the Wi-Fi firmware assert; only Wi-Fi is
 # lost, a reboot recovers it. Example for testing VHT80 on 5 GHz:
 #max_bw_5g=80
+#
+# Experimental: per-client TX rate in "iw station dump" and LuCI, read from
+# the firmware's rate-control table over SDIO (a failed read stops Wi-Fi
+# until reboot; the driver then disables the feature). Can also be toggled
+# at run time: echo 1 > /sys/module/sprdwl_ng/parameters/cp_txrate
+#cp_txrate=1
