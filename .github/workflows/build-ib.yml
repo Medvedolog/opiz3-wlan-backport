@@ -24,8 +24,18 @@ on:
       - 'package/**'
       - 'scripts/zero3-dtb-add-wifi.py'
       - 'scripts/fit-replace-dtb.py'
+      - 'scripts/stable-mtimes.py'
       - '.github/workflows/build-ib.yml'
   workflow_dispatch:
+    inputs:
+      rebuild_packages:
+        description: Build the packages even if nothing they depend on changed
+        type: boolean
+        default: false
+      clean_sdk:
+        description: Start the SDK build from scratch (ignore the build cache)
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,12 +60,66 @@ env:
     iwinfo libiwinfo libiwinfo-data
 
 jobs:
+  # Packages are rebuilt only when something they depend on changed
+  # (package/, this job, the signing key); otherwise the signed repository of
+  # the last build is reused from the cache. When they are rebuilt, the SDK
+  # build_dir/staging_dir/dl come from the cache of the previous build and
+  # scripts/stable-mtimes.py keeps unchanged packages from rebuilding, so a
+  # driver change recompiles just the driver.
   packages:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
+      - name: Signing key
+        id: key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          if [ -n "$APK_SIGN_KEY" ]; then
+            printf '%s\n' "$APK_SIGN_KEY" > "$RUNNER_TEMP/private-key.pem"
+            ID=$(openssl ec -in "$RUNNER_TEMP/private-key.pem" -pubout 2>/dev/null \
+                 | sha256sum | cut -c1-12)
+            echo "Using APK_SIGN_KEY ($ID)"
+          else
+            # a throw-away key is made only if the packages are built; a
+            # cached repository brings the key it was signed with
+            ID=throwaway
+            echo "::warning::APK_SIGN_KEY not set: throw-away key, nothing will be published"
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Inputs of the package build
+        id: inputs
+        run: |
+          H=$(python3 - <<'EOF'
+          import hashlib, os, yaml
+          h = hashlib.sha256()
+          wf = yaml.safe_load(open(".github/workflows/build-ib.yml"))
+          h.update(repr((wf["env"], wf["jobs"]["packages"])).encode())
+          for top in ("package", "scripts/stable-mtimes.py"):
+              paths = [top] if os.path.isfile(top) else sorted(
+                  os.path.join(r, f) for r, _, fs in os.walk(top) for f in fs)
+              for path in paths:
+                  h.update(path.encode() + b"\0" + open(path, "rb").read())
+          print(h.hexdigest()[:16])
+          EOF
+          )
+          echo "hash=$H" >> "$GITHUB_OUTPUT"
+          echo "package inputs: $H"
+
+      - name: Reuse packages built from the same inputs
+        id: repo
+        if: ${{ !inputs.rebuild_packages }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            repo/
+            ${{ env.KEY_NAME }}.pem
+          key: apk-repo-${{ env.RELEASE }}-${{ steps.key.outputs.id }}-${{ steps.inputs.outputs.hash }}
+
       - name: Install build dependencies
+        if: steps.repo.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk \
@@ -63,28 +127,36 @@ jobs:
             python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
 
       - name: Download SDK ${{ env.RELEASE }}
+        if: steps.repo.outputs.cache-hit != 'true'
         run: |
           BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
           SDK=openwrt-sdk-$RELEASE-$SDK_SUFFIX
           curl -fsSL -O "$BASE/$SDK.tar.zst"
           tar --zstd -xf "$SDK.tar.zst"
+          rm "$SDK.tar.zst"
           mv "$SDK" sdk
 
-      - name: Signing key
-        env:
-          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
-        run: |
-          if [ -n "$APK_SIGN_KEY" ]; then
-            printf '%s\n' "$APK_SIGN_KEY" > sdk/private-key.pem
-            echo "Using APK_SIGN_KEY"
+          if [ -f "$RUNNER_TEMP/private-key.pem" ]; then
+            cp "$RUNNER_TEMP/private-key.pem" sdk/private-key.pem
           else
             openssl ecparam -name prime256v1 -genkey -noout -out sdk/private-key.pem
-            echo "::warning::APK_SIGN_KEY not set: throw-away key, nothing will be published"
           fi
           openssl ec -in sdk/private-key.pem -pubout > sdk/public-key.pem
           cp sdk/public-key.pem "$KEY_NAME.pem"
 
+      - name: Restore the SDK build cache
+        if: steps.repo.outputs.cache-hit != 'true' && !inputs.clean_sdk
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            sdk/build_dir
+            sdk/staging_dir
+            sdk/dl
+          key: sdk-build-${{ env.RELEASE }}-${{ github.run_id }}
+          restore-keys: sdk-build-${{ env.RELEASE }}-
+
       - name: Feeds and sources
+        if: steps.repo.outputs.cache-hit != 'true'
         working-directory: sdk
         run: |
           ./scripts/feeds update base packages luci
@@ -98,6 +170,7 @@ jobs:
           mv "openwrt-$BASE_COMMIT/package/kernel/mac80211" package/kernel/
           rm -rf ow.tar.gz "openwrt-$BASE_COMMIT"
 
+          rm -rf package/kernel/uwe5622 package/firmware/uwe5622-firmware
           cp -r ../package/kernel/uwe5622 package/kernel/
           mkdir -p package/firmware
           cp -r ../package/firmware/uwe5622-firmware package/firmware/
@@ -126,11 +199,13 @@ jobs:
 
           git clone --depth 1 --branch "$FOOTSTRAP_TAG" \
             https://github.com/VizzleTF/luci-theme-footstrap.git /tmp/footstrap
+          rm -rf package/luci-theme-footstrap
           cp -a /tmp/footstrap/luci-theme-footstrap package/
 
           git clone https://github.com/2Grey/awg-openwrt.git /tmp/awg
           git -C /tmp/awg checkout "$AWG_COMMIT"
           for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
+            rm -rf "package/$p"
             cp -a "/tmp/awg/$p" package/
           done
 
@@ -139,7 +214,11 @@ jobs:
           # make the next make rescan everything
           rm -rf tmp
 
+          # unchanged packages keep their stamps in the cached build_dir
+          python3 ../scripts/stable-mtimes.py package $(readlink -f feeds/*)
+
       - name: Configure
+        if: steps.repo.outputs.cache-hit != 'true'
         working-directory: sdk
         run: |
           cat > .config <<'EOF'
@@ -160,6 +239,7 @@ jobs:
           make defconfig
 
       - name: Build
+        if: steps.repo.outputs.cache-hit != 'true'
         working-directory: sdk
         run: |
           set -o pipefail
@@ -176,6 +256,7 @@ jobs:
           done
 
       - name: Collect, check and index our packages
+        if: steps.repo.outputs.cache-hit != 'true'
         working-directory: sdk
         run: |
           mkdir -p ../repo
@@ -202,6 +283,32 @@ jobs:
           ../sdk/staging_dir/host/bin/apk adbdump --format json packages.adb \
             | head -c 600; echo
           ls -la
+
+      - name: Save the packages for runs with the same inputs
+        if: steps.repo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            repo/
+            ${{ env.KEY_NAME }}.pem
+          key: apk-repo-${{ env.RELEASE }}-${{ steps.key.outputs.id }}-${{ steps.inputs.outputs.hash }}
+
+      - name: Save the SDK build cache
+        if: steps.repo.outputs.cache-hit != 'true'
+        run: |
+          # bin/ is not cached: the packages are written again, signed with
+          # the key of the run
+          rm -rf sdk/build_dir/target-*/root-* sdk/tmp
+          du -sh sdk/build_dir sdk/staging_dir sdk/dl
+
+      - if: steps.repo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            sdk/build_dir
+            sdk/staging_dir
+            sdk/dl
+          key: sdk-build-${{ env.RELEASE }}-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         with:
