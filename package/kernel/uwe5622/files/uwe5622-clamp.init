@@ -1,0 +1,23 @@
+#!/bin/sh /etc/rc.common
+# Re-check the onboard radio's htmode after every change of
+# /etc/config/wireless (hooked up through /usr/share/ucitrack). LuCI offers
+# HT40/VHT40/VHT80 even when the driver allows only 20 MHz (max_bw_*), and
+# hostapd then refuses to start ("Driver does not support configured HT
+# capability"), leaving the AP down. Narrow the setting and restart the
+# radio instead. Nothing to do at boot: sprdwl-delay clamps before its
+# own "wifi up".
+
+START=99
+
+start() {
+	:
+}
+
+reload() {
+	[ -d /sys/module/sprdwl_ng ] || return 0
+	. /lib/uwe5622.sh
+	/usr/sbin/uwe5622-clamp-htmode
+	[ $? = 2 ] || return 0
+	# let netifd finish the reload LuCI started, then apply the fix
+	( sleep 3; uwe_wifi up ) >/dev/null 2>&1 &
+}

@@ -4,7 +4,10 @@
 # /etc/uwe5622.options). LuCI still lists VHT40/VHT80 because iwinfo
 # derives them from the VHT capability alone, and hostapd fails to start
 # on a width cfg80211 refuses, so fix the config instead of leaving the
-# AP down. Called by /etc/init.d/sprdwl-delay before "wifi up".
+# AP down. Called by /etc/init.d/sprdwl-delay before "wifi up", by
+# uwe5622-recover, and by /etc/init.d/uwe5622-clamp after every change of
+# /etc/config/wireless (LuCI "Save & Apply"). Exit status 2 means a radio
+# was changed.
 
 . /lib/uwe5622.sh
 
@@ -13,6 +16,7 @@ max2=$(cat "$P/max_bw_2g" 2>/dev/null || echo 20)
 max5=$(cat "$P/max_bw_5g" 2>/dev/null || echo 20)
 
 # only the UWE5622: other radios (USB adapters) have their own limits
+changed=0
 for radio in $(uwe_radios); do
 	ht=$(uci -q get "wireless.$radio.htmode") || continue
 	band=$(uci -q get "wireless.$radio.band")
@@ -36,5 +40,7 @@ for radio in $(uwe_radios); do
 
 	uci set "wireless.$radio.htmode=$prefix$max"
 	uci commit wireless
+	changed=1
 	logger -t uwe5622 "$radio: htmode $ht -> $prefix$max (driver max ${max} MHz on $band)"
 done
+[ "$changed" = 0 ] || exit 2
