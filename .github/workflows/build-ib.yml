@@ -424,6 +424,25 @@ jobs:
           sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-footstrap-default
           chmod +x files/etc/uci-defaults/zz-opiz3-footstrap-default
 
+          # uplinks of a travel router: an LTE modem ("modem", ModemManager)
+          # and a Wi-Fi client ("wwan", LuCI "Join network"). Without them in
+          # the wan zone the board itself is online but LAN clients get no
+          # NAT (seen on hardware). Harmless while the interfaces do not exist.
+          cat > files/etc/uci-defaults/zz-opiz3-wan-zone <<'EOF'
+          #!/bin/sh
+          z=$(uci show firewall | sed -n "s/^firewall\.\(@zone\[[0-9]*\]\)\.name='wan'$/\1/p" | head -1)
+          [ -n "$z" ] || exit 0
+          for n in modem wwan; do
+          	uci -q get "firewall.$z.network" | grep -qw "$n" ||
+          		uci add_list "firewall.$z.network=$n"
+          done
+          uci commit firewall
+          exit 0
+          EOF
+          sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-wan-zone
+          chmod +x files/etc/uci-defaults/zz-opiz3-wan-zone
+          sh -n files/etc/uci-defaults/zz-opiz3-wan-zone
+
       - name: Build image
         working-directory: ib
         run: |
@@ -515,6 +534,7 @@ jobs:
           chk 'grep -q "uwe_mmc_host" "$ROOT/usr/sbin/uwe5622-recover"'
           chk 'grep -q "DRIVERS==\"unisoc_wifi\"" "$ROOT/lib/udev/rules.d/77-mm-uwe5622-ignore.rules"'
           chk 'test -x "$ROOT/etc/init.d/uwe5622-clamp" && grep -q uwe5622-clamp "$ROOT/usr/share/ucitrack/kmod-uwe5622.json"'
+          chk 'grep -q "for n in modem wwan" "$ROOT/etc/uci-defaults/zz-opiz3-wan-zone"'
           chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
           chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
