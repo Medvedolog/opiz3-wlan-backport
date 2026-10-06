@@ -1,5 +1,11 @@
 # Orange Pi Zero 3 WLAN / UWE5622 — HANDOFF
 
+> **Historical snapshot (2026-09-30).** Branch names, the repository path and
+> the patch list below describe the state at that date. The current state is
+> in the [README](../README.md); the firmware findings since then are in
+> [WCNMODEM-REVERSE-ENGINEERING.md](WCNMODEM-REVERSE-ENGINEERING.md), revision 3.
+
+
 Date: 2026-09-30  
 Repository: `Medvedolog/opiz3-wlan-backport`  
 Working branch: `dev/owrt-25.12-uwe5622-current`
