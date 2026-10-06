@@ -359,6 +359,14 @@ jobs:
           test "$FAILED" = 0
           echo "  OK      key, repo, driver files, iwinfo entry and modalias fallback"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz3-image-${{ env.RELEASE }}
+          if-no-files-found: error
+          path: |
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero3*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
+
       - name: Package ImageBuilder
         run: |
           # ready-to-use ImageBuilder: Wi-Fi DTB, our packages, key and repo
@@ -371,16 +379,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opiz3-image-${{ env.RELEASE }}
-          path: |
-            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero3*
-            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
-
-      - uses: actions/upload-artifact@v4
-        with:
           name: opiz3-imagebuilder-${{ env.RELEASE }}
           path: ${{ env.IB_NAME }}-opiz3.tar.zst
           compression-level: 0
+          if-no-files-found: error
 
   publish:
     needs: image
