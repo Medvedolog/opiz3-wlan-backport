@@ -2383,3 +2383,57 @@ Confirms §52: the SDIO RX path carries no per-frame RSSI. Per-client
 signal, if anywhere, is in CP memory outside the station table (§56.1):
 next step is a bulk read of the firmware data area near/far (patch 260).
 
+
+## 59. TX power and antennas: what the host can and cannot see (2026-10-06)
+
+Why LuCI/`iwinfo` show no TX power, and why netifd logged
+`command failed: Not supported (-95)` on every `wifi up`.
+
+**Host interface.** The only power command is `WIFI_CMD_POWER_SAVE`
+sub-type `SPRDWL_SET_TX_POWER` (3), `struct sprdwl_cmd_power_save
+{ u8 sub_type; u8 value; }`. The vendor driver uses it only for the SAR
+vendor command (`vendor.c`): value `0` selects the "BDF0" SAR limit, `-1`
+removes it. There is no reply with a power value and no "get" sub-type.
+`SPRDWL_CAPA_TX_POWER` (bit 28 of the `GET_INFO` capabilities) exists, but
+nothing in the driver reads a level back. So cfg80211 `get_tx_power` has no
+data source, and a number in LuCI would be invented. Patch 280 does not add
+one.
+
+**Where the power comes from.** `wifi_2355b001_1ant.ini`, downloaded with
+the firmware:
+
+| Section | Keys | Reading |
+|---|---|---|
+| 2 Board Config | `TxChain_Mask = 2`, `RxChain_Mask = 2` | Only chain 1 is used (one antenna) |
+| 3 Board Config TPC | `TPC_Goal_Chain1 = 159,167,162,152,159,167,162,152` | Closed-loop power targets per band group; chain 0 all zero |
+| 6 Rate To Power (BW 20M) | `11b_Power`, `11ag_Power`, `11n_Power`, `11ac_Power` | Per-rate offsets (higher MCS → larger value) |
+| 7 Power Backoff | `HT40/VHT40/VHT80_Power_offset = 0`, `SAR = 0`, `Mean_Power_offset = 36` | No extra back-off for wide channels |
+| 9 Band Edge Power offset | per-channel tables for BW20/40/80 | Edge-channel reductions |
+
+The units are not documented. If `TPC_Goal` is in 1/8 dB the targets are
+19–21 dBm, which is plausible for this module, but that is a guess and is
+not shown in the UI.
+
+**What wifi-scripts call.** `/lib/netifd/wireless/mac80211.sh` (25.12, ucode)
+runs on every start:
+
+```
+iw phy phy0 set antenna <tx> <rx>     # "all" = 0xffffffff
+iw phy phy0 set distance <distance>   # coverage class
+iw phy phy0 set txpower auto          # or "fixed <n>00"
+```
+
+Without `set_antenna` and `set_tx_power` cfg80211 answers `-EOPNOTSUPP`
+(the two `-95` lines). `set distance` reaches the driver's
+`set_wiphy_params` with only `WIPHY_PARAM_COVERAGE_CLASS` set; the driver
+then sent `SET_PARAM` with RTS = frag = 0 to the firmware. `sprdwl_set_param`
+returns `-ENOMEM` when it cannot get a command buffer, so this is the likely
+(not confirmed) source of the occasional `Out of memory (-12)` line.
+
+Patch 280: one antenna (`available_antennas_tx/rx = 1` unless the firmware
+reports a mask); `set_antenna` accepts the mask already in effect (cfg80211
+has already reduced "all" to it) and refuses others; `set_tx_power` accepts
+`auto` and refuses `fixed`/`limited`; `set_wiphy_params` returns early when
+neither RTS nor fragmentation changed. A user-set `txpower` in
+`/etc/config/wireless` therefore still logs `-95`, which is correct: the
+firmware cannot do it.
