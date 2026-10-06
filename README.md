@@ -19,7 +19,7 @@ What sets it apart from earlier builds:
   far enough to explain its failures. All findings are published in
   [docs/](docs/).
 
-> Status: **beta 1** ([release](https://github.com/croissantpie12/opiz3-wlan-backport/releases/tag/opiz3-25.12.5-beta1)).
+> Status: **beta 1** ([release](../../releases/tag/opiz3-25.12.5-beta1)).
 > Verified on a Zero 3: 5 GHz VHT80 and 2.4 GHz AP, client mode on 2.4 GHz,
 > LTE uplink, per-client traffic and TX rate, firmware recovery in ~14 s.
 > Not yet: AP and client at the same time, per-client signal (the firmware
@@ -332,21 +332,6 @@ Further pieces:
   reads sysfs/debugfs, never the chip. TX power is not shown anywhere as a
   number: the firmware takes it from its ini file and has no command to
   read it back, so LuCI keeps showing no value rather than an invented one.
-
-## Moving to Medvedolog/opiz3-wlan-backport
-
-Releases after beta 1 are built in
-[Medvedolog/opiz3-wlan-backport](https://github.com/Medvedolog/opiz3-wlan-backport)
-(branch `main`), with the same signing key. Images from beta 1 and earlier
-use the package repository of the croissantpie12 fork; it stays online. To
-switch an installed board to the new repository:
-
-```sh
-sed -i 's#croissantpie12.github.io#medvedolog.github.io#' /etc/apk/repositories.d/customfeeds.list
-apk update && apk upgrade
-```
-
-The key is the same, so no new key is needed.
 
 ## Building
 
