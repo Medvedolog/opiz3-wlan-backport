@@ -2459,3 +2459,25 @@ Chain to locate the break: cfg80211 `chandef` → beacon HT/VHT Operation →
 `sta+0x241` stays 2 in all three rows, the host width is decorative for the
 firmware, and the next step is the `START_AP` / `NEW_STA` fields the firmware
 actually reads for bandwidth.
+
+## 61. Recovery on hardware: a driver reload cannot restart the chip (2026-10-06, r15)
+
+`uwe5622-recover` run by hand on a Zero 3 with an AP and a client:
+
+1. `rmmod sprdwl_ng` → `marlin power off`, `sdiohal_remove`.
+2. `insmod sprdwl_ng` → `start_marlin`, SDIO card found, firmware written
+   ("combin_img 0 ... successful"), but `marlin_start_run read reset reg
+   val:0x0` (a cold start reads `0x1`), `marlin_write_cali_data sync
+   init_state:0x0` repeated, `check_cp_ready sync val:0x0`, card dump,
+   `marlin download timeout`, `probe ... failed with error -1`.
+   The BSP's power control is "chip en dummy" on this board: the chip is
+   never reset, and a firmware downloaded into it does not start.
+3. Both modules unloaded, `4021000.mmc` unbind/bind (`mmc0: card 8800
+   removed` / `new high speed SDIO card`), BSP and driver loaded:
+   `reset reg val:0x1`, cali sync `0xf0f0f0f1`, CP ready, AP up again
+   (as **phy2**: phy numbers keep counting, so nothing may assume phy0).
+   About 10 s.
+
+So the only working recovery on the Zero 3 is the host reset (wifi-pwrseq
+toggles PG18). From r16 `uwe5622-recover` does that directly; the driver
+reload step, which cost ~60 s and a card dump, is gone.

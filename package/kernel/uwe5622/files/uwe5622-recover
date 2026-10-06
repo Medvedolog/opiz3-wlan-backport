@@ -7,13 +7,15 @@
 # expects userspace to reload the driver: the next probe calls
 # start_marlin(), which rescans SDIO and downloads the firmware again.
 #
-# Step 1 reloads sprdwl_ng only. If no phy appears, step 2 unloads both
-# modules and resets the SDIO host (unbind/bind of its platform device):
-# on the Zero 3 the BSP cannot switch the module's power ("chip en dummy"),
-# so the host reset, which toggles the reset line through wifi-pwrseq, is
-# the only real chip reset short of a reboot. Then both modules are loaded
-# as at boot. Needs patch 250, which makes the BSP unregister its SDIO
-# driver; without it a reload fails with -EBUSY.
+# Both modules are unloaded and the SDIO host is reset (unbind/bind of its
+# platform device), then both are loaded as at boot. A reload of sprdwl_ng
+# alone does not work here: on the Zero 3 the BSP cannot switch the
+# module's power ("chip en dummy"), the chip is not reset, and the firmware
+# downloaded into it never starts (reset reg 0x0, cali sync 0x0, "marlin
+# download timeout"; seen on hardware). The host reset toggles the reset
+# line through wifi-pwrseq, the only real chip reset short of a reboot.
+# Needs patch 250, which makes the BSP unregister its SDIO driver; without
+# it the reload fails with -EBUSY.
 # The radio, its phy and its SDIO host are looked up (/lib/uwe5622.sh),
 # not assumed to be radio0/phy0/mmc1: a USB adapter can take those.
 # At most MAX_TRIES recoveries per WINDOW seconds, so a configuration
@@ -44,34 +46,29 @@ uwe_wifi down 2>/dev/null
 sleep 2
 
 ok=0
-if uwe_unload sprdwl_ng && uwe_load_wifi && uwe_wait_phy >/dev/null; then
-	ok=1
-else
-	log "driver reload did not bring the radio back, resetting the SDIO host"
-	host=$(uwe_mmc_host)
-	if uwe_unload sprdwl_ng && uwe_unload uwe5622_bsp_sdio; then
-		if [ -n "$host" ] && [ -e "$host/driver" ]; then
-			drv=$(readlink -f "$host/driver")
-			name=${host##*/}
-			log "SDIO host $name: unbind/bind"
-			echo "$name" > "$drv/unbind"
-			sleep 1
-			echo "$name" > "$drv/bind"
-			i=0
-			while ! ls /sys/bus/sdio/devices/ 2>/dev/null | grep -q . &&
-			      [ "$i" -lt 10 ]; do
-				sleep 1; i=$((i + 1))
-			done
-		else
-			log "SDIO host not found, reloading the modules only"
-		fi
-		if /sbin/modprobe uwe5622_bsp_sdio; then
-			sleep 5
-			uwe_load_wifi && uwe_wait_phy >/dev/null && ok=1
-		fi
+host=$(uwe_mmc_host)
+if uwe_unload sprdwl_ng && uwe_unload uwe5622_bsp_sdio; then
+	if [ -n "$host" ] && [ -e "$host/driver" ]; then
+		drv=$(readlink -f "$host/driver")
+		name=${host##*/}
+		log "SDIO host $name: unbind/bind"
+		echo "$name" > "$drv/unbind"
+		sleep 1
+		echo "$name" > "$drv/bind"
+		i=0
+		while ! ls /sys/bus/sdio/devices/ 2>/dev/null | grep -q . &&
+		      [ "$i" -lt 10 ]; do
+			sleep 1; i=$((i + 1))
+		done
 	else
-		log "modules could not be unloaded"
+		log "SDIO host not found, reloading the modules only"
 	fi
+	if /sbin/modprobe uwe5622_bsp_sdio; then
+		sleep 5
+		uwe_load_wifi && uwe_wait_phy >/dev/null && ok=1
+	fi
+else
+	log "modules could not be unloaded"
 fi
 
 if [ "$ok" = 1 ]; then
