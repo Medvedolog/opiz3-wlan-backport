@@ -2493,3 +2493,100 @@ clients; 1 h 14 min with moderate traffic, no assert, SoC ~54 °C. With
 air does. `max_bw_5g` defaults to 80 from r17. Open: whether the firmware
 honours a host width *below* what the client supports (the §60 matrix
 row 20/VHT20 says no).
+
+## 63. Wi-Fi RAM at `0x40300000`: hardware per-LUT tables, and a firmware command for a per-context MAC (2026-10-06, static)
+
+Second pass over `wcnmodem.bin` (sha256 `119b87ce…a80`) with two questions:
+where the hardware keeps per-client data that §56.1 could not find in the
+image RAM, and how the AP interface could get its own MAC (repeater, §64
+plan).
+
+### 63.1 Readable windows, from the vendor's own crash dump
+
+The BSP crash dump for UWE5622 (`unisocwcn/platform/wcn_dump.c`,
+`include/uwe562x_glb.h`, `include/uwe5622_glb.h`) reads, besides the image
+RAM (CP `0x100000` = bus `0x40500000`, §51), these bus addresses directly
+with `sprdwcn_bus_direct_read()`, after checking the Wi-Fi power domain:
+
+| Bus address | Size | Vendor name |
+|---|---|---|
+| `0x400f0000` | `0x120` | `WIFI_AON_MAC` |
+| `0x400f1000` | `0xd100` | `WIFI_RTN_PD_MAC` (MAC registers) |
+| `0x40300000` | `0x4a800` | `WIFI_352K/298K_RAM` |
+| `0x400b0000..0x400b7618` | small | PHY/RF interface registers |
+
+The firmware uses the same addresses (literal `0x4034a800` = end of the
+`0x4a800` RAM), so for peripherals CP address = bus address; only the image
+RAM is offset. `cp_mem` (patch 260) covers none of these windows.
+
+### 63.2 Hardware per-LUT tables in Wi-Fi RAM
+
+`0x001532e0` (MAC init) stores buffer addresses in the global block
+`*(0x1201d8)` and programs them into MAC registers; `0x001532a8` does the
+same for the TX-statistics buffer and clears it:
+
+| Bus address | Size | Layout | Programmed into | Used by the image |
+|---|---|---|---|---|
+| `0x40340000` | `0xc80` | 32 × `0x64` (one per LUT) | `0x400fc058` | `+0x30..+0x3c` written on key/PN setup (`0x155bc4`); `+0x43` bit 7, `+0x4c` bit 15, `+0x4e` read (`0x155e18..0x155e4a`) |
+| `0x40340c80` | `0x200` | — | `0x400fc058 + 4` region | — |
+| `0x40340e80` | `0x200` | 32 × 16? | `0x400f1174 + 8` | not read by the image |
+| `0x40341080` | `0x200` | 32 × 16? | `0x400f1174 + 0x10` | not read by the image |
+| `0x40341280` | `0x200` | 32 × 16? | `0x400fc058 - 0x18` | not read by the image |
+| `0x40341480` | `0x200` | 32 × 16? | `0x400fc058 - 0x10` | not read by the image |
+| **`0x40341680`** | **`0x900`** | **32 × `0x48`** | `0x400f20b4` | `0x001539b0` (§47): copy + clear per LUT |
+
+So the "MAC per-LUT TX statistics" block of §47/§48 is **not** a register
+window but a buffer the MAC writes at `0x40341680 + lut*0x48`; its
+`+0x40` (s32 sum) / `+0x44` (u16 count) are the ACK-RSSI accumulators that
+feed `sta+0x3a5`. `0x001539b0` selects the LUT in `0x400f8758` (bits 0..5),
+locks `0x400f20bc`, copies and clears.
+
+Why `sta+0x3a5` never moved on hardware (§56.1) has two candidate reasons,
+both testable by reading `0x40341680` directly:
+
+1. the count at `+0x44` stays 0 (the MAC does not collect ACK RSSI in this
+   configuration), or
+2. the average is outside `-128..127` (`(sum/count) + 0x80 <= 0xff` fails),
+   for example because the hardware sums in a finer unit; then the
+   firmware discards every sample, while the host can still scale it.
+
+The four 16-byte-per-LUT tables are filled by hardware only (no reader in
+the image; the ROM may read them). A per-LUT RX signal value, if the MAC
+keeps one, would be in one of them or in the 100-byte station entry.
+
+### 63.3 `WIFI_CMD_RND_MAC_ADDR` (0x40), subtype 2: set a context's MAC
+
+Handler `0x0014363e(ctx, buf)`: `ctx >= 3` → error; subtype = `buf[0xc]`
+(the first payload byte after the command header), MAC = `buf + 0xd`.
+
+| Subtype | Handler | What it does |
+|---|---|---|
+| 0, 1 | `0x0014358a` | scan random address; only for context type 0 (station), else `-8` |
+| **2** | **`0x001435ee`** | MAC must be unicast (bit 0 of byte 0 clear, else `-8`); then ROM `0x231466(ctx, mac)`, `0x218742(ctx, mac)`, and `0x2026d8(ctx, 0x21876a(ctx))` (writes the address to the MAC hardware). **No context-type check.** |
+
+The host already has this command: `wlan_cmd_set_rand_mac(priv, ctx_id,
+SPRDWL_CONNECT_RANDOM_ADDR (= 2), addr)` in `rnd_mac_addr.c`, used before
+connect when a station has a random MAC (`cfg80211.c`, `has_rand_mac`).
+`RND_MAC_SUPPORT` is enabled in the build. What is missing is the AP side:
+`sprdwl_set_mac()` (`main.c`) stores a new address only in STATION mode,
+so with OpenWrt's per-interface MACs the AP context keeps the chip MAC,
+identical to the station context (repeater failure, TEST-PLAN S5).
+
+### 63.4 Next steps
+
+1. **Repeater:** driver patch: accept the address in AP mode too
+   (`sprdwl_set_mac`), and send subtype 2 for the AP context before
+   `START_AP` when its address differs from the chip MAC. Test S5.
+2. **Per-client signal:** debugfs reader for the bus windows above
+   (`0x40340000..0x40341f80` first, 8 KB, inside the vendor-dumped
+   `0x40300000` window), decoded per LUT; then the near/far/near test
+   of §56.1 on this window. The `0x40341680` block is cleared by the
+   firmware on each rate-control poll, so a read shows a partial sum/count;
+   the ratio is still the average.
+
+| Finding | Confidence |
+|---|---|
+| Per-LUT TX-statistics buffer at bus `0x40341680`, 32 × `0x48` | High (static: allocation, size `0x900`, register write, reader §47) |
+| Per-LUT 100-byte station entries at `0x40340000` | Medium (stride and users; meaning of fields open) |
+| Windows readable over SDIO | High for the vendor-dumped ranges (vendor crash dump reads them); read only while Wi-Fi is up |
+| Subtype 2 of command 0x40 sets the MAC of any context `< 3` | High (static); not yet tried on hardware |
