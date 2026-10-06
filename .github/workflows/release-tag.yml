@@ -1,6 +1,8 @@
 name: Release a tested build
 
-# Pushing a tag like opiz3-25.12.5-beta1 turns the current rolling build
+# Pushing a tag like opiz3-25.12.5-beta1, or running this workflow by hand
+# (Actions -> Release a tested build -> Run workflow, with the tag name),
+# turns the current rolling build
 # (release opiz3-<RELEASE>-latest) into a fixed release with the notes from
 # docs/releases/<tag>.md. Nothing is rebuilt: the files are the ones that
 # were tested. The tag must not change any build input against the commit
@@ -12,6 +14,11 @@ on:
       - 'opiz3-*-beta*'
       - 'opiz3-*-rc*'
       - 'opiz3-*-r[0-9]*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create, e.g. opiz3-25.12.5-beta1
+        required: true
 
 permissions:
   contents: write
@@ -21,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,6 +51,8 @@ jobs:
           mkdir art
           gh release download "opiz3-$RELEASE-latest" -D art
           ls -la art
-          gh release create "$TAG" --verify-tag --prerelease \
+          # a pushed tag already exists; by hand the tag is created here
+          if [ "$GITHUB_EVENT_NAME" = push ]; then T=--verify-tag; else T="--target $GITHUB_SHA"; fi
+          gh release create "$TAG" $T --prerelease \
             --title "Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${TAG#opiz3-$RELEASE-}" \
             --notes-file "docs/releases/$TAG.md" art/*
