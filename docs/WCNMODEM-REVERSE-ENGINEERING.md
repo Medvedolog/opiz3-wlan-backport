@@ -2231,3 +2231,63 @@ reload (package files, commit `cb13d24`).
 | bus = CP + `0x40400000`, `SYNC_ADDR` derivation | High |
 | no per-frame rate/RSSI on SDIO RX | High (unless the `msdu_offset` gap carries it) |
 | no host-side image signature | High; CP boot ROM unknown |
+
+---
+
+# Revision 4 — first hardware readings of the station table
+
+Image: official-kernel build (`build-ib.yml`, run 37418761145), driver
+patches 010–230. Board: Orange Pi Zero 3. AP on ch36, `htmode VHT20`,
+WPA2-PSK, `max_bw_5g=20`. One Android phone associated, about 1 m away.
+
+## 56. `cp_sta_table` matches the client (2026-10-06)
+
+Board, patch 230 output (station lines; raw dump omitted):
+
+```
+table 0x17e390 len 0x2420
+ 0 mode 0 idx   0 code   0 type 0 legacy raw 1 (x10 = 10) sgi 0 bw 20
+ 1 mode 0 idx   0 code   5 type 1 legacy raw 6 (x10 = 60) sgi 0 bw 20
+ 4 mode 0 idx   0 code   5 type 1 legacy raw 6 (x10 = 60) sgi 0 bw 20
+ 6 mode 0 idx  12 code  43 type 3 VHT MCS 9 NSS 1 sgi 1 bw 80 rssi -35 lut-peer 76:85:83:55:68:5e
+```
+
+`peer_stats` (patch 150) on the board: LUT 6, ctx 1, MAC
+`76:85:83:55:68:5e`, HT 1, VHT 1. The phone reported link speed 433 Mbit/s,
+5 GHz, Wi-Fi 5, its MAC `76:85:83:55:68:5E`, signal "high".
+
+| Finding | Evidence | Confidence |
+|---|---|---|
+| Table index = hardware LUT (§47) | block 6 ↔ host `peer_entry[6]` = the phone's MAC | **High (hardware)** |
+| Rate decoding (§46, §40 formatter) | VHT MCS 9, NSS 1, SGI, 80 MHz = 433.3 Mbit/s = phone's 433 | **High (hardware)** |
+| ACK RSSI at `sta+0x3a5`, valid `+0x3a4` (§48) | −35 dBm at 1 m, valid flag set only for the real client | Medium-high; needs a second distance |
+| Blocks 0, 1, 4 | legacy 1/6 Mbit/s, no RSSI, no host peer: broadcast/management or own entries | Medium |
+
+Consequence: per-client TX rate and signal can be reported through
+`get_station` / `dump_station` from this table (LUT → host peer MAC).
+
+## 57. The firmware uses 80 MHz although the host configured 20 MHz
+
+Same moment: `iw dev phy0-ap0 info` reports `channel 36 (5180 MHz), width:
+20 MHz`, hostapd runs `VHT20`, patch 200 advertises no 40/80 MHz, yet the
+firmware rate control transmits to the client at **VHT80** (`bw 80`,
+`sta+0x241 = 2`) and the client reports the matching 433 Mbit/s.
+
+So the operating bandwidth towards a peer is chosen by the firmware (likely
+from the peer's VHT capabilities and the firmware's own channel context),
+not from the host's channel definition. Patch 200 limits what cfg80211 and
+hostapd request; it does not bind the firmware.
+
+Open questions:
+
+- Where the firmware takes the width from: the VHT/HT Operation IEs of the
+  START_AP beacon (hostapd writes channel width 0 for VHT20), the peer's
+  capabilities in the association, or a default of the channel context
+  (`base_chan_clutch`, §45).
+- Whether the radio really occupies 80 MHz on air (iperf3 throughput above
+  the VHT20 ceiling of ~87 Mbit/s PHY would show it) and what happens on a
+  channel where 80 MHz is not allowed (e.g. ch 165, or 140 with DFS off).
+- Whether the RF assert of §45 can be reached this way.
+
+Until resolved, the documented default "20 MHz" describes the host
+configuration only.
