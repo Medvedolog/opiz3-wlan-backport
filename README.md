@@ -45,6 +45,7 @@ What sets it apart from earlier builds:
 ## Contents
 
 - [Status](#status)
+- [Performance](#performance)
 - [Download](#download)
 - [Background: earlier attempts](#background-earlier-attempts)
 - [What this project adds](#what-this-project-adds)
@@ -61,7 +62,7 @@ What sets it apart from earlier builds:
 |---|---|
 | SDIO bring-up, firmware download, `wlan0` / `phy0` | Works |
 | 2.4 GHz AP, HT20 | Works |
-| 5 GHz AP, ch36 HT20 and VHT80 | Starts and serves clients (verified); VHT80 under sustained load not yet tested |
+| 5 GHz AP, ch36 | Works; the firmware transmits at 80 MHz even when the host configures 20 MHz (see [Performance](#performance)) |
 | Client (STA) mode | Not yet tested in this project |
 | Associated clients in `iw station dump` / LuCI | MAC list works |
 | Per-client RSSI / rate in LuCI | Not available: the firmware does not export them in AP mode (see below) |
@@ -86,6 +87,27 @@ The driver advertises only these widths and channels, and
 `uwe5622-clamp-htmode` lowers `htmode` in the wireless config to match.
 Without this, a setting the firmware cannot handle makes it assert, and
 Wi-Fi is gone until a reboot.
+
+## Performance
+
+Measured on a Zero 3, 5 GHz ch36, one antenna, Android phone at about 1 m,
+old image (patches up to 230):
+
+| Test | Result |
+|---|---|
+| iperf3 phone → board, 5 streams | 160 Mbit/s (above the ~87 Mbit/s VHT20 PHY ceiling: the link really is 80 MHz) |
+| Phone link rate (phone's own statistics) | RX 390 / TX 433 Mbit/s (VHT80 MCS8/9, SGI) |
+| Rate control at −69 dBm (`cp_sta_table`) | VHT80 MCS2 |
+| Client 1 iperf3 unlimited + client 2 speed test | client 2 ≤ 5 Mbit/s |
+| Client 1 iperf3 limited to 50 Mbit/s + client 2 speed test | client 2 76 down / 31 up (internet ceiling ~100) |
+| CPU during the load | 85–95 % idle, no core saturated |
+
+Reading: the aggregate ceiling is about 160 Mbit/s and an unlimited TCP
+upload from one client takes nearly all of it; below saturation the clients
+share fairly. The CPU is idle, the SDIO RX thread waits on I/O, and the
+SDIO bus runs in High Speed mode (50 MHz, 4 bit, ~200 Mbit/s raw), which
+fits the ceiling. Next experiment: SDIO UHS SDR50 (100 MHz) in the device
+tree.
 
 ## Download
 
