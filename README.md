@@ -71,7 +71,6 @@ What sets it apart from earlier builds:
 | Unsupported widths/channels blocked | Built (awaits hardware check) |
 | DFS channels (52–144) | Blocked by default |
 | 160 MHz, ch 34, ch 184+ | Blocked |
-| Bluetooth | Not built |
 | Autoload at boot | Delayed load after the network is up, so a stuck SDIO probe cannot block Ethernet ([roadmap](#what-we-are-still-working-on), item 4) |
 
 Defaults are deliberately conservative: 20 MHz on both bands, no DFS. They
@@ -205,7 +204,6 @@ The firmware findings explain three long-standing problems:
      in-kernel crash recovery.
    - Design and protocol map: [docs/NEW-DRIVER-ARCHITECTURE.md](docs/NEW-DRIVER-ARCHITECTURE.md).
    - This is also the only realistic path towards upstream.
-6. **Bluetooth.** Not started.
 
 ## Driver patch series
 

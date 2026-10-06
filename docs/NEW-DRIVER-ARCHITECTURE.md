@@ -23,7 +23,7 @@ Goals of the new driver:
 - Firmware crash recovery inside the kernel.
 
 Non-goals: P2P, NAN, RTT, GSCAN, IBSS, TDLS, WoWLAN, vendor NL80211 commands,
-Bluetooth (separate later), PCIe/USB variants.
+Bluetooth (out of scope: not needed for an OpenWrt router), PCIe/USB variants.
 
 ## 2. Layers
 
