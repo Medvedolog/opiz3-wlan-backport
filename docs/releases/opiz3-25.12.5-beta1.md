@@ -4,8 +4,8 @@
 
 Official OpenWrt 25.12.5 kernel: every kmod from downloads.openwrt.org
 installs with `apk`. The Wi-Fi driver and our packages come from the signed
-repository https://croissantpie12.github.io/opiz3-wlan-backport/ , which the
-image already trusts.
+package repository of this project (GitHub Pages), which the image already
+trusts.
 
 ## Verified on hardware (Zero 3)
 
@@ -56,8 +56,7 @@ crashes show as `assert` or `recovering Wi-Fi` in `logread`.
 
 Официальное ядро OpenWrt 25.12.5: любые kmod с downloads.openwrt.org
 ставятся через `apk`. Драйвер Wi-Fi и наши пакеты — из подписанного
-репозитория https://croissantpie12.github.io/opiz3-wlan-backport/ ,
-образ ему уже доверяет.
+репозитория пакетов проекта (GitHub Pages), образ ему уже доверяет.
 
 ## Проверено на железе (Zero 3)
 

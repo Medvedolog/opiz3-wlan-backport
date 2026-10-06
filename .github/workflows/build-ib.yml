@@ -20,7 +20,6 @@ on:
   push:
     branches:
       - ci/uwe5622-build20-control
-      # the home repository (Medvedolog/opiz3-wlan-backport) builds from main
       - main
     paths:
       - 'package/**'
