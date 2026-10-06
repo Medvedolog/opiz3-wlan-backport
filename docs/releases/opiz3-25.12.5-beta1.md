@@ -21,8 +21,13 @@ trusts.
   `cp_txrate=1` in `/etc/uwe5622.options`.
 - Firmware crash recovery without a reboot (~14 s).
 - "Board" panel on Status → Overview (temperatures, CPU, Wi-Fi driver,
-  host width vs firmware width), System → CPU frequency (governor,
+  host width vs firmware width, Wi-Fi clients table: name, IP, MAC,
+  bytes, TX rate, connected time), System → CPU frequency (governor,
   `ondemand` by default), Travelmate.
+- Access point on the first boot (see "After flashing").
+
+What is in the image and why:
+[docs/IMAGE-PACKAGES.md](https://github.com/Medvedolog/opiz3-wlan-backport/blob/main/docs/IMAGE-PACKAGES.md).
 
 ## Known limitations
 
@@ -37,9 +42,13 @@ trusts.
 
 ## After flashing
 
-Wi-Fi is **off** (as in stock OpenWrt): LuCI → Network → Wireless → Edit,
-set an SSID and a WPA2 key, Enable. Set a root password
-(System → Administration).
+The board starts a Wi-Fi access point: SSID **`OPiZ3`**, 5 GHz channel 36,
+WPA2, password **`12345678test`**. Connect to it and open
+http://192.168.1.1.
+
+**This password is public: change it right away** (LuCI → Network →
+Wireless → Edit → Wireless Security). Until then the "Board" panel shows a
+warning. Set a root password (System → Administration).
 
 Upgrade an existing install without reflashing:
 `apk update && apk upgrade && reboot`
@@ -72,7 +81,13 @@ crashes show as `assert` or `recovering Wi-Fi` in `logread`.
   `cp_txrate=1` в `/etc/uwe5622.options`.
 - Восстановление после падения прошивки без перезагрузки (~14 с).
 - Панель «Board» на главной (температуры, CPU, драйвер, ширина хоста и
-  прошивки), System → CPU frequency (по умолчанию `ondemand`), Travelmate.
+  прошивки, таблица Wi-Fi клиентов: имя, IP, MAC, байты, TX-скорость,
+  время подключения), System → CPU frequency (по умолчанию `ondemand`),
+  Travelmate.
+- Точка доступа сразу после прошивки (см. «После прошивки»).
+
+Что в образе и зачем:
+[docs/IMAGE-PACKAGES.md](https://github.com/Medvedolog/opiz3-wlan-backport/blob/main/docs/IMAGE-PACKAGES.md).
 
 ## Известные ограничения
 
@@ -89,9 +104,13 @@ crashes show as `assert` or `recovering Wi-Fi` in `logread`.
 
 ## После прошивки
 
-Wi-Fi **выключен** (как в стоковом OpenWrt): LuCI → Network → Wireless →
-Edit, задайте SSID и пароль WPA2, Enable. Задайте пароль root
-(System → Administration).
+Плата сама поднимает точку доступа: SSID **`OPiZ3`**, 5 ГГц, канал 36,
+WPA2, пароль **`12345678test`**. Подключитесь и откройте
+http://192.168.1.1.
+
+**Пароль публичный — смените его сразу** (LuCI → Network → Wireless →
+Edit → Wireless Security). Пока не сменён, в блоке «Board» висит
+предупреждение. Задайте пароль root (System → Administration).
 
 Обновление без перепрошивки: `apk update && apk upgrade && reboot`
 

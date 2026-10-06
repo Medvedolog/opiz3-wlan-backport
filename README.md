@@ -171,8 +171,6 @@ Each build produces:
   > задайте пароль root (System → Administration). Пока пароль не сменён,
   > на главной странице LuCI (блок «Board») висит предупреждение.
 
-  Beta 1 and earlier images: the Wi-Fi network is off after flashing, as in
-  stock OpenWrt.
 - **ImageBuilder** (`opiz3-imagebuilder-25.12.5`): the official ImageBuilder
   with the Wi-Fi device tree already in the kernel, our packages, the key and
   the repository. Build your own package set with it:
