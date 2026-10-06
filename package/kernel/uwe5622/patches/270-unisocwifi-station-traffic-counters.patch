@@ -1,0 +1,13 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: per-station bytes and packets in get_station
+
+Patch 150 counts, per hardware LUT, what the driver hands to the firmware
+for a peer and what it receives from it, but only shows it in debugfs.
+Report these host-side counters in get_station (AP/GO), so that
+"iw station dump", iwinfo and LuCI show RX/TX bytes and packets per client.
+They are the driver's own counts, not delivery or airtime figures; signal
+and failure counters stay unset.
+
+Also correct the comment on the rate-control block: sta+0x239 is the
+current rate index and sta+0x3a5 is not a live signal (RE doc 56.1).
+---
