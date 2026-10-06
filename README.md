@@ -155,10 +155,23 @@ Each build produces:
 
 - **Image** (`opiz3-image-25.12.5`): squashfs and ext4 SD-card images.
   Flash them like any OpenWrt sunxi image.
-  As in stock OpenWrt, the Wi-Fi network is **off after flashing** (open,
-  `disabled=1`): set an SSID and a WPA2 key in LuCI → Network → Wireless and
-  enable it. Also set a root password (`passwd` or LuCI → System →
-  Administration).
+  From r18 the board comes up with a Wi-Fi access point on the first boot:
+  SSID **`OPiZ3`**, 5 GHz channel 36 (VHT80), WPA2, password
+  **`12345678test`**. The image then reaches LuCI at http://192.168.1.1 over
+  Wi-Fi without a cable.
+
+  > ⚠️ **This password is public. Change it right after the first login**
+  > (LuCI → Network → Wireless → Edit → Wireless Security), and set a root
+  > password (System → Administration). Until the Wi-Fi password is changed,
+  > the "Board" panel on Status → Overview shows a warning.
+  >
+  > ⚠️ **Пароль Wi-Fi по умолчанию публичный — смените его сразу** после
+  > первого входа (LuCI → Network → Wireless → Edit → Wireless Security) и
+  > задайте пароль root (System → Administration). Пока пароль не сменён,
+  > на главной странице LuCI (блок «Board») висит предупреждение.
+
+  Beta 1 and earlier images: the Wi-Fi network is off after flashing, as in
+  stock OpenWrt.
 - **ImageBuilder** (`opiz3-imagebuilder-25.12.5`): the official ImageBuilder
   with the Wi-Fi device tree already in the kernel, our packages, the key and
   the repository. Build your own package set with it:

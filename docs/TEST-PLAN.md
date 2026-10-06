@@ -9,7 +9,7 @@ radio is not always phy0/radio0).
 
 | # | Area | How | Expected |
 |---|---|---|---|
-| 1 | First boot of a fresh image | flash, boot, wait 1 min, open LuCI | "Wireless" present, AP up without manual steps |
+| 1 | First boot of a fresh image | flash, boot, wait 1 min, join `OPiZ3` (`12345678test`), open LuCI | AP up on 5 GHz ch 36 VHT80 (r18+); Board panel warns about the default password until it is changed |
 | 2 | `wifi up` log | `logread \| grep -E "\-95\|\-12\|mixed HW"` after `wifi` | nothing (patch 280) |
 | 3 | phy MAC, name | `. /lib/uwe5622.sh; cat /sys/class/ieee80211/$(uwe_phy)/macaddress; iwinfo \| head -3` | a real MAC; "Unisoc UWE5622" |
 | 4 | Board panel | LuCI Status → Overview, "Board" | temperatures, CPU, driver, firmware version, SDIO 50 MHz |

@@ -1,0 +1,30 @@
+#!/bin/sh
+# First boot only (called by sprdwl-delay right after "wifi config" created
+# the radio): bring the onboard Wi-Fi up as a 5 GHz access point instead of
+# OpenWrt's disabled, open default, so the board is reachable over Wi-Fi
+# out of the box. The password is public (it is in this file and the docs):
+# change it right away. LuCI shows a warning on Status -> Overview while it
+# is in use.
+
+SSID=OPiZ3
+KEY=12345678test
+
+. /lib/uwe5622.sh
+radio=$(uwe_radios | head -1)
+[ -n "$radio" ] || exit 0
+iface=$(uci -q show wireless |
+	sed -n "s/^wireless\.\([^.=]*\)\.device='$radio'$/\1/p" | head -1)
+[ -n "$iface" ] || exit 0
+
+uci set "wireless.$radio.band=5g"
+uci set "wireless.$radio.channel=36"
+uci set "wireless.$radio.htmode=VHT80"
+uci set "wireless.$iface.mode=ap"
+uci set "wireless.$iface.network=lan"
+uci set "wireless.$iface.ssid=$SSID"
+uci set "wireless.$iface.encryption=psk2"
+uci set "wireless.$iface.key=$KEY"
+uci -q delete "wireless.$iface.disabled"
+uci -q delete "wireless.$radio.disabled"
+uci commit wireless
+logger -t uwe5622 "Wi-Fi AP '$SSID' on 5 GHz channel 36 with the DEFAULT password $KEY: change it (Network -> Wireless)"

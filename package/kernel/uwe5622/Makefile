@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=uwe5622
 PKG_VERSION:=2026.09.13
-PKG_RELEASE:=17
+PKG_RELEASE:=18
 
 PKG_SOURCE_VERSION:=cc2835a3f935d5297e03cdce464c1785381a7b4d
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_VERSION).tar.gz
@@ -70,6 +70,7 @@ define KernelPackage/uwe5622/install
 	$(INSTALL_BIN) ./files/uwe5622-clamp-htmode $(1)/usr/sbin/uwe5622-clamp-htmode
 	$(INSTALL_BIN) ./files/uwe5622-recover $(1)/usr/sbin/uwe5622-recover
 	$(INSTALL_BIN) ./files/uwe5622-iwinfo-name $(1)/usr/sbin/uwe5622-iwinfo-name
+	$(INSTALL_BIN) ./files/uwe5622-default-ap $(1)/usr/sbin/uwe5622-default-ap
 	$(INSTALL_DIR) $(1)/lib
 	$(INSTALL_DATA) ./files/uwe5622.sh $(1)/lib/uwe5622.sh
 	$(INSTALL_DIR) $(1)/lib/udev/rules.d

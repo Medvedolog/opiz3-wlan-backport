@@ -535,6 +535,7 @@ jobs:
           chk 'grep -q "DRIVERS==\"unisoc_wifi\"" "$ROOT/lib/udev/rules.d/77-mm-uwe5622-ignore.rules"'
           chk 'test -x "$ROOT/etc/init.d/uwe5622-clamp" && grep -q uwe5622-clamp "$ROOT/usr/share/ucitrack/kmod-uwe5622.json"'
           chk 'grep -q "for n in modem wwan" "$ROOT/etc/uci-defaults/zz-opiz3-wan-zone"'
+          chk 'test -x "$ROOT/usr/sbin/uwe5622-default-ap" && grep -q uwe5622-default-ap "$ROOT/etc/init.d/sprdwl-delay"'
           chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
           chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
