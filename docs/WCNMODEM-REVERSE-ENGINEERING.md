@@ -2240,7 +2240,7 @@ Image: official-kernel build (`build-ib.yml`, run 37418761145), driver
 patches 010–230. Board: Orange Pi Zero 3. AP on ch36, `htmode VHT20`,
 WPA2-PSK, `max_bw_5g=20`. One Android phone associated, about 1 m away.
 
-## 56. `cp_sta_table` matches the client (2026-10-06)
+## 56. `cp_sta_table` on hardware: LUT mapping holds, values do not update (2026-10-06)
 
 Board, patch 230 output (station lines; raw dump omitted):
 
@@ -2256,22 +2256,32 @@ table 0x17e390 len 0x2420
 `76:85:83:55:68:5e`, HT 1, VHT 1. The phone reported link speed 433 Mbit/s,
 5 GHz, Wi-Fi 5, its MAC `76:85:83:55:68:5E`, signal "high".
 
+Second reading, phone moved to another room (phone: −73 dBm): block 6 is
+**byte-for-byte unchanged** (`VHT MCS 9 NSS 1 sgi 1 bw 80 rssi -35`). A
+VHT80 MCS9 link is impossible at −73 dBm, so these fields are not the live
+rate-control state.
+
 | Finding | Evidence | Confidence |
 |---|---|---|
 | Table index = hardware LUT (§47) | block 6 ↔ host `peer_entry[6]` = the phone's MAC | **High (hardware)** |
-| Rate decoding (§46, §40 formatter) | VHT MCS 9, NSS 1, SGI, 80 MHz = 433.3 Mbit/s = phone's 433 | **High (hardware)** |
-| ACK RSSI at `sta+0x3a5`, valid `+0x3a4` (§48) | −35 dBm at 1 m, valid flag set only for the real client | Medium-high; needs a second distance |
+| Rate fields at `sta+0x238..0x241` are the current TX rate (§46) | first reading equalled the phone's 433, but identical at −73 dBm | **Low**: likely the initial (top) rate of the set, not updated |
+| ACK RSSI at `sta+0x3a5` (§48) | −35 at 1 m and again at −73 dBm | **Low**: not updating, or updated only on events not seen here |
 | Blocks 0, 1, 4 | legacy 1/6 Mbit/s, no RSSI, no host peer: broadcast/management or own entries | Medium |
 
-Consequence: per-client TX rate and signal can be reported through
-`get_station` / `dump_station` from this table (LUT → host peer MAC).
+Working hypothesis: this table keeps per-peer rate-control *configuration*
+(rate set, initial index); the live state is maintained elsewhere, possibly
+in the ROM part of the WLAN stack (§37). Next step: diff full dumps taken
+at different distances and after traffic to find any bytes that change.
 
 ## 57. The firmware uses 80 MHz although the host configured 20 MHz
 
 Same moment: `iw dev phy0-ap0 info` reports `channel 36 (5180 MHz), width:
 20 MHz`, hostapd runs `VHT20`, patch 200 advertises no 40/80 MHz, yet the
-firmware rate control transmits to the client at **VHT80** (`bw 80`,
-`sta+0x241 = 2`) and the client reports the matching 433 Mbit/s.
+client receives at **VHT80**.
+
+Independent evidence: the phone's own statistics showed RX (AP → phone)
+390 Mbit/s = VHT80 MCS8 SGI, above any 20 or 40 MHz rate. This does not
+depend on the table (§56).
 
 So the operating bandwidth towards a peer is chosen by the firmware (likely
 from the peer's VHT capabilities and the firmware's own channel context),
