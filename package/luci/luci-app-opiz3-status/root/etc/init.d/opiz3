@@ -1,0 +1,41 @@
+#!/bin/sh /etc/rc.common
+# Apply the CPU frequency settings of /etc/config/opiz3 to every cpufreq
+# policy. OpenWrt's sunxi kernel defaults to the "performance" governor
+# (always the top frequency); "ondemand" idles at the lowest one.
+
+START=15
+
+apply() {
+	local gov min max p avail lo hi
+
+	config_load opiz3
+	config_get gov cpufreq governor ondemand
+	config_get min cpufreq min_freq
+	config_get max cpufreq max_freq
+
+	for p in /sys/devices/system/cpu/cpufreq/policy*; do
+		[ -d "$p" ] || continue
+		avail=$(cat "$p/scaling_available_governors" 2>/dev/null)
+		case " $avail " in
+			*" $gov "*) echo "$gov" > "$p/scaling_governor" ;;
+			*) logger -t opiz3 "governor '$gov' not available ($avail)" ;;
+		esac
+
+		lo=$(cat "$p/cpuinfo_min_freq")
+		hi=$(cat "$p/cpuinfo_max_freq")
+		[ -n "$min" ] && [ "$min" -ge "$lo" ] 2>/dev/null && [ "$min" -le "$hi" ] && lo=$min
+		[ -n "$max" ] && [ "$max" -ge "$lo" ] 2>/dev/null && [ "$max" -le "$hi" ] && hi=$max
+		# widen first, then narrow, so min never exceeds max on the way
+		echo "$(cat "$p/cpuinfo_min_freq")" > "$p/scaling_min_freq"
+		echo "$hi" > "$p/scaling_max_freq"
+		echo "$lo" > "$p/scaling_min_freq"
+	done
+}
+
+start() {
+	apply
+}
+
+reload() {
+	apply
+}

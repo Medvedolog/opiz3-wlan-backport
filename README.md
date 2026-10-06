@@ -219,7 +219,8 @@ the firmware's behaviour stayed as they were.
 | Firmware-crashing settings | Accepted | Blocked in cfg80211 (200) |
 | Firmware crash | Vendor driver does not recover: Wi-Fi dead until reboot | Automatic driver reload, rate-limited (`uwe5622-recover`) |
 | Name in LuCI | "Generic" | "Unisoc UWE5622" (iwinfo patch; also in the `iwinfo` CLI) |
-| Board status | None | LuCI Overview panel: SoC temperatures, CPU frequency, Wi-Fi driver state, SDIO bus clock, firmware recoveries (`luci-app-opiz3-status`) |
+| Board status | None | LuCI Overview panel: SoC temperatures, CPU frequency, Wi-Fi driver state and firmware, host vs firmware channel width, SDIO bus clock, firmware recoveries (`luci-app-opiz3-status`) |
+| CPU frequency | Kernel default "performance" (always 1512 MHz) | `ondemand` by default; governor and min/max in LuCI System → CPU frequency (`/etc/config/opiz3`). No overclocking: the table stops at the SoC's 1512 MHz / 1.10 V, and Wi-Fi is limited by SDIO, not the CPU |
 | Firmware internals | Unknown | Reverse engineered, published ([notes](docs/WCNMODEM-REVERSE-ENGINEERING.md)) |
 | Build | Manual steps | CI: SDK + ImageBuilder, signed repo, image checks |
 

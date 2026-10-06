@@ -31,10 +31,14 @@ function thermal() {
 
 function cpu() {
 	let p = '/sys/devices/system/cpu/cpu0/cpufreq';
+	let words = (path) => filter(split(rd(path) ?? '', /[ \t]+/), (w) => length(w));
 	return {
 		cur: num(`${p}/scaling_cur_freq`),
+		min: num(`${p}/scaling_min_freq`),
 		max: num(`${p}/scaling_max_freq`),
 		governor: rd(`${p}/scaling_governor`),
+		governors: words(`${p}/scaling_available_governors`),
+		frequencies: map(words(`${p}/scaling_available_frequencies`), (f) => +f),
 	};
 }
 
