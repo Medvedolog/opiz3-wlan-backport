@@ -584,8 +584,11 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+  # only main publishes (apk repository, rolling release); a run started by
+  # hand from another branch is a test build: images stay in the artifacts
   publish:
     needs: image
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

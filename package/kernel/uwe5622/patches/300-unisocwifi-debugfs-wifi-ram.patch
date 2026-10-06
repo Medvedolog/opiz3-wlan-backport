@@ -1,0 +1,103 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: debugfs wifi_ram, hardware per-LUT tables
+
+Per-client signal is not in the image RAM that cp_mem covers (§56.1). The
+MAC keeps per-LUT tables in the separate Wi-Fi RAM (RE §63.2), including
+the per-LUT TX statistics with the ACK RSSI sum and count that the
+firmware's rate control reads.
+
+wifi_ram is a binary debugfs file covering bus 0x40340000..0x40342000
+(8 KiB) inside the window the vendor crash dump reads. Each read checks
+that the Wi-Fi power domains are on (CHIP_SLP) first and returns -EAGAIN
+otherwise; same chunking, locking and error handling as cp_mem. Root only,
+never read by the driver itself.
+---
+diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
+index 45292f2..4e5317b 100644
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -926,6 +926,75 @@ static const struct file_operations cp_mem_fops = {
+ 	.llseek = default_llseek,
+ };
+ 
++/* Raw read of the hardware per-LUT tables in the Wi-Fi RAM (bus address =
++ * CP address here), for reverse engineering (RE §63.2): station entries
++ * 0x40340000 (32 x 0x64), four 32 x 16 tables 0x40340c80..0x40341680 and
++ * the per-LUT TX statistics 0x40341680 (32 x 0x48, ACK RSSI sum/count at
++ * +0x40/+0x44). The vendor crash dump reads the whole 0x40300000 window;
++ * only these 8 KiB are exposed, and only while the Wi-Fi power domains
++ * are on (CHIP_SLP), checked before every read.
++ */
++#define WIFI_RAM_START		0x40340000
++#define WIFI_RAM_END		0x40342000
++#define WIFI_CHIP_SLP		0x4083c00c
++#define WIFI_ALL_PWRON		(BIT(16) | BIT(14))	/* MAC, WRAP */
++
++static ssize_t wifi_ram_read(struct file *file, char __user *ubuf,
++			     size_t count, loff_t *ppos)
++{
++	struct sprdwl_intf *intf = file->private_data;
++	loff_t pos = *ppos;
++	u32 addr, len, slp = 0;
++	u8 *buf;
++	int ret;
++
++	if (pos < 0)
++		return -EINVAL;
++	if (pos >= WIFI_RAM_END - WIFI_RAM_START)
++		return 0;
++	if (intf->cp_asserted || sprdwcn_bus_get_carddump_status())
++		return -EIO;
++
++	addr = WIFI_RAM_START + pos;
++	len = min_t(u32, count, CP_MEM_CHUNK);
++	len = min_t(u32, len, WIFI_RAM_END - addr);
++	len &= ~3u;
++	if (!len || (addr & 3))
++		return -EINVAL;
++
++	buf = kmalloc(len, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	mutex_lock(&cp_sta_lock);
++	ret = sprdwcn_bus_reg_read(WIFI_CHIP_SLP, &slp, 4);
++	if (!ret && (slp & WIFI_ALL_PWRON) != WIFI_ALL_PWRON)
++		ret = -EAGAIN;
++	else if (!ret)
++		ret = sprdwcn_bus_direct_read(addr, buf, len);
++	mutex_unlock(&cp_sta_lock);
++	if (ret) {
++		kfree(buf);
++		wl_err("wifi_ram: read at 0x%x failed (%d, slp 0x%x)\n",
++		       addr, ret, slp);
++		return ret == -EAGAIN ? -EAGAIN : -EIO;
++	}
++	if (copy_to_user(ubuf, buf, len)) {
++		kfree(buf);
++		return -EFAULT;
++	}
++	kfree(buf);
++	*ppos = pos + len;
++	return len;
++}
++
++static const struct file_operations wifi_ram_fops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.read = wifi_ram_read,
++	.llseek = default_llseek,
++};
++
+ static int rx_desc_dump_open(struct inode *inode, struct file *file)
+ {
+ 	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
+@@ -980,6 +1049,8 @@ static void sprdwl_debugfs_init(struct sprdwl_intf *intf)
+ 			    &cp_sta_table_fops);
+ 	debugfs_create_file("cp_mem", S_IRUSR, sprdwl_debug_root, intf,
+ 			    &cp_mem_fops);
++	debugfs_create_file("wifi_ram", S_IRUSR, sprdwl_debug_root, intf,
++			    &wifi_ram_fops);
+ }
+ 
+ static void sprdwl_debugfs_deinit(void)

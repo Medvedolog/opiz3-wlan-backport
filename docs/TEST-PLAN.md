@@ -70,6 +70,34 @@ For S5 the vendor driver has single-channel AP+STA support
 (`STA_SOFTAP_SCC_MODE`); whether this firmware and our patches handle it is
 exactly what the test shows.
 
+## r19 test build (beta 2 candidate)
+
+**S5 repeater (patch 290, per-interface MAC).** AP `OPiZ3` running, add a
+client interface on the same radio (LuCI → Network → Wireless → Scan →
+Join network, or Travelmate), uplink on 2.4 GHz.
+
+```sh
+iw dev | grep -E "Interface|addr|type|channel"   # two different addr
+logread | grep -iE "setting MAC|sprdwl_set_mac|assert" | tail
+```
+
+Then a phone joins `OPiZ3`: gets an IP, has internet through the uplink.
+Expected: the AP moves to the uplink's channel (single radio).
+
+**Per-client signal (patch 300, `wifi_ram`).** AP with one phone, traffic
+running on it:
+
+```sh
+sh wifi-ram-diff.sh grab near1     # phone next to the board
+sh wifi-ram-diff.sh grab far       # phone in another room
+sh wifi-ram-diff.sh grab near2     # next to the board again
+sh wifi-ram-diff.sh diff
+grep lut-peer /sys/kernel/debug/sprdwl_debug/cp_sta_table
+```
+
+Send the output of `grab` (ACK RSSI per LUT) and `diff`, plus the phone's
+own signal reading for each position.
+
 ## Results 2026-10-06 (Zero 3, r15 image with r16/r17 fixes) → beta 1
 
 | # | Result |

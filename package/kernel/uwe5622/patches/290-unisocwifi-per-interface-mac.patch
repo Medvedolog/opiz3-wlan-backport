@@ -1,0 +1,78 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: per-interface MAC (AP + station on one radio)
+
+With an AP and a station on the radio (repeater) both interfaces had the
+chip MAC: clients saw the AP but could not join.
+
+- sprdwl_register_netdev: the address requested with the interface
+  (nl80211 NEW_INTERFACE; OpenWrt gives each interface its own) wins over
+  the chip MAC, which sprdwl_set_mac_addr always preferred.
+- sprdwl_set_mac: while the interface is down any valid address is taken
+  in every mode (it was ignored unless the interface was an up station);
+  an up non-station interface returns -EBUSY instead of a silent 0.
+- sprdwl_init_fw: when the address differs from the chip MAC it is also
+  set with WIFI_CMD_RND_MAC subtype 2, which the firmware applies to any
+  context (RE §63.3). WIFI_CMD_OPEN carries it too, but whether the
+  firmware applies it from there is not known.
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 8d5fcb3..da37684 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -449,6 +449,19 @@ int sprdwl_init_fw(struct sprdwl_vif *vif)
+ 		return -EIO;
+ 	}
+ 	vif->ctx_id  = vif_ctx_id;
++#ifdef RND_MAC_SUPPORT
++	/* WIFI_CMD_OPEN carries the address; whether the firmware applies it
++	 * is not known. Subtype 2 of WIFI_CMD_RND_MAC sets the address of a
++	 * context in the firmware and the MAC, for any context type
++	 * (firmware 0x001435ee, RE §63.3). Only sent when it differs.
++	 */
++	if (is_valid_ether_addr(priv->mac_addr) &&
++	    !ether_addr_equal(mac, priv->mac_addr) &&
++	    wlan_cmd_set_rand_mac(priv, vif->ctx_id, SPRDWL_CONNECT_RANDOM_ADDR,
++				  mac))
++		wl_ndev_log(L_ERR, vif->ndev, "%s: setting MAC %pM failed\n",
++			    __func__, mac);
++#endif
+ 	wl_ndev_log(L_DBG, vif->ndev, "%s,open success type %d, mode:%d, ctx_id:%d\n",
+ 		    __func__, type,
+ 		    vif->mode, vif->ctx_id);
+diff --git a/unisocwifi/main.c b/unisocwifi/main.c
+index 429b35c..e6d0086 100644
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -931,6 +931,19 @@ static int sprdwl_set_mac(struct net_device *dev, void *addr)
+ 		return -EINVAL;
+ 	}
+ 
++	/* interface down: the address goes to the firmware with WIFI_CMD_OPEN
++	 * (and WIFI_CMD_RND_MAC, see sprdwl_init_fw), in any mode
++	 */
++	if (!netif_running(dev)) {
++		if (!is_valid_ether_addr(sa->sa_data))
++			return -EADDRNOTAVAIL;
++		dev_addr_set(dev, sa->sa_data);
++		return 0;
++	}
++
++	if (vif->mode != SPRDWL_MODE_STATION)
++		return -EBUSY;
++
+ 	if (vif->mode == SPRDWL_MODE_STATION) {
+ 		if (!is_zero_ether_addr(sa->sa_data)) {
+ 			vif->has_rand_mac = true;
+@@ -1452,6 +1465,12 @@ static struct sprdwl_vif *sprdwl_register_netdev(struct sprdwl_priv *priv,
+ 	SET_NETDEV_DEV(ndev, wiphy_dev(priv->wiphy));
+ 
+ 	sprdwl_set_mac_addr(vif, addr, target_mac_addr);
++	/* a MAC requested with the interface (nl80211 NEW_INTERFACE, OpenWrt's
++	 * per-interface addresses) wins over the chip MAC: an AP and a station
++	 * on this radio need different addresses (repeater)
++	 */
++	if (addr && is_valid_ether_addr(addr))
++		ether_addr_copy(target_mac_addr, addr);
+ 	dev_addr_set(ndev, target_mac_addr);
+ 
+ #ifdef CONFIG_P2P_INTF
