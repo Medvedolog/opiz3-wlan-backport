@@ -1,0 +1,21 @@
+From: jukeboge <jukeboge@gmail.com>
+Subject: [PATCH] uwe5622: honor bind verification Kbuild option
+
+Propagate CONFIG_AW_BIND_VERIFY from an external-module build into the
+preprocessor flags used by the transport driver.
+
+Signed-off-by: jukeboge <jukeboge@gmail.com>
+---
+--- a/unisocwcn/Makefile
++++ b/unisocwcn/Makefile
+@@ -85,6 +85,10 @@ BSP_CHIP_ID := uwe5622
+ WCN_HW_TYPE := sdio
+ endif
+ 
++ifeq ($(CONFIG_AW_BIND_VERIFY),y)
++ccflags-y += -DCONFIG_AW_BIND_VERIFY=1
++endif
++
+ MODULE_NAME := $(BSP_CHIP_ID)_bsp_$(WCN_HW_TYPE)
+ 
+ ifneq ($(UNISOC_FW_PATH_CONFIG),)

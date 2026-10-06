@@ -1,0 +1,7 @@
+# CPU frequency scaling, applied by /etc/init.d/opiz3 (LuCI: System -> CPU frequency).
+# governor: one of /sys/devices/system/cpu/cpufreq/policy0/scaling_available_governors
+# min_freq/max_freq: kHz from scaling_available_frequencies; empty = hardware limit
+config cpufreq 'cpufreq'
+	option governor 'ondemand'
+	option min_freq ''
+	option max_freq ''

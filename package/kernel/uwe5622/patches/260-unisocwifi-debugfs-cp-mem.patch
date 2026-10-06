@@ -1,0 +1,94 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: debugfs cp_mem, raw read of the firmware area
+
+Per-client signal is neither in the rate-control table (§56.1) nor in the
+SDIO RX descriptors (§58). To look for it, dumps of the firmware's memory
+taken with a client near and far are compared.
+
+cp_mem is a binary debugfs file covering only 0x100000..0x1e73b0, the
+downloaded image and its data up to the BSP's sync block, which the BSP
+itself reads. It reads in 4 KiB direct transfers under the cp_sta_table
+lock, refuses while the CP is asserted or dumping and returns -EIO at the
+first failed transfer. Root only, never read by the driver itself.
+---
+diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -834,6 +834,68 @@ static const struct file_operations cp_sta_table_fops = {
+ 	.release = single_release,
+ };
+ 
++/* Raw read of the firmware image area for reverse engineering (binary,
++ * cat cp_mem > file). Only [CP_MEM_START, CP_MEM_END) is readable: the
++ * downloaded image and its data, the range the BSP itself reads (sync
++ * block at its end). A failed direct read stops the Wi-Fi (patch 220), so
++ * nothing outside it is ever touched and reading stops at the first error.
++ */
++#define CP_MEM_START		0x00100000
++#define CP_MEM_END		0x001e73b0	/* SYNC_ADDR - CP_BUS_OFFSET */
++#define CP_MEM_CHUNK		0x1000
++
++static ssize_t cp_mem_read(struct file *file, char __user *ubuf,
++			   size_t count, loff_t *ppos)
++{
++	struct sprdwl_intf *intf = file->private_data;
++	loff_t pos = *ppos;
++	u32 addr, len;
++	u8 *buf;
++	int ret;
++
++	if (pos < 0)
++		return -EINVAL;
++	if (pos >= CP_MEM_END - CP_MEM_START)
++		return 0;
++	if (intf->cp_asserted || sprdwcn_bus_get_carddump_status())
++		return -EIO;
++
++	addr = CP_MEM_START + pos;
++	len = min_t(u32, count, CP_MEM_CHUNK);
++	len = min_t(u32, len, CP_MEM_END - addr);
++	/* whole words only */
++	len &= ~3u;
++	if (!len || (addr & 3))
++		return -EINVAL;
++
++	buf = kmalloc(len, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	mutex_lock(&cp_sta_lock);
++	ret = sprdwcn_bus_direct_read(addr + CP_BUS_OFFSET, buf, len);
++	mutex_unlock(&cp_sta_lock);
++	if (ret) {
++		kfree(buf);
++		wl_err("cp_mem: read at 0x%x failed (%d)\n", addr, ret);
++		return -EIO;
++	}
++	if (copy_to_user(ubuf, buf, len)) {
++		kfree(buf);
++		return -EFAULT;
++	}
++	kfree(buf);
++	*ppos = pos + len;
++	return len;
++}
++
++static const struct file_operations cp_mem_fops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.read = cp_mem_read,
++	.llseek = default_llseek,
++};
++
+ static int rx_desc_dump_open(struct inode *inode, struct file *file)
+ {
+ 	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
+@@ -886,6 +948,8 @@ static void sprdwl_debugfs_init(struct sprdwl_intf *intf)
+ 			    &rx_desc_dump_fops);
+ 	debugfs_create_file("cp_sta_table", S_IRUSR, sprdwl_debug_root, intf,
+ 			    &cp_sta_table_fops);
++	debugfs_create_file("cp_mem", S_IRUSR, sprdwl_debug_root, intf,
++			    &cp_mem_fops);
+ }
+ 
+ static void sprdwl_debugfs_deinit(void)

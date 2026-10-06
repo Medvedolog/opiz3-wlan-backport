@@ -1,0 +1,229 @@
+From: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+Subject: [PATCH] unisocwifi: implement cfg80211 dump_station
+
+The driver implements .get_station but not .dump_station, so
+NL80211_CMD_GET_STATION with NLM_F_DUMP returns nothing. That dump is the
+only source iwinfo uses to populate the LuCI wireless page: both
+nl80211_get_assoclist() and nl80211_fill_signal() issue it. As a result
+neither the clients associated to our AP nor the AP we are connected to as
+a station ever appear, even though the link itself works.
+
+The driver already learns every peer: sprdwl_report_softap() is handed the
+MAC address on each join and leave. Record those addresses on the vif and
+report them through a new .dump_station callback. In managed mode index 0
+reports the current BSSID.
+
+Note that sprdwl_cfg80211_get_station() ignores the MAC it is given and
+returns interface-wide counters, so per-station statistics are only as
+accurate as the firmware's aggregate figures. Enumerating the stations is
+still what makes the wireless page work at all.
+
+Signed-off-by: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 61be02f..1599148 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1141,19 +1141,98 @@ static int sprdwl_cfg80211_change_beacon(struct wiphy *wiphy,
+ }
+ #endif
+ 
++/* Associated station bookkeeping.
++ *
++ * The firmware announces every join and leave through sprdwl_report_softap(),
++ * which is the only place that sees the peer MAC address. Record them here so
++ * that cfg80211 can enumerate the stations through dump_station.
++ */
++static void sprdwl_add_assoc_sta(struct sprdwl_vif *vif, const u8 *addr)
++{
++	unsigned long flags;
++	int i;
++
++	spin_lock_irqsave(&vif->sta_lock, flags);
++	for (i = 0; i < vif->sta_num; i++)
++		if (ether_addr_equal(vif->sta_addr[i], addr))
++			goto out;
++
++	if (vif->sta_num < SPRDWL_MAX_ASSOC_STA) {
++		ether_addr_copy(vif->sta_addr[vif->sta_num], addr);
++		vif->sta_num++;
++	}
++out:
++	spin_unlock_irqrestore(&vif->sta_lock, flags);
++}
++
++static void sprdwl_del_assoc_sta(struct sprdwl_vif *vif, const u8 *addr)
++{
++	unsigned long flags;
++	int i;
++
++	spin_lock_irqsave(&vif->sta_lock, flags);
++	for (i = 0; i < vif->sta_num; i++) {
++		if (!ether_addr_equal(vif->sta_addr[i], addr))
++			continue;
++		/* keep the array dense: move the last entry into the hole */
++		vif->sta_num--;
++		if (i != vif->sta_num)
++			ether_addr_copy(vif->sta_addr[i],
++					vif->sta_addr[vif->sta_num]);
++		break;
++	}
++	spin_unlock_irqrestore(&vif->sta_lock, flags);
++}
++
++static void sprdwl_clear_assoc_sta(struct sprdwl_vif *vif)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&vif->sta_lock, flags);
++	vif->sta_num = 0;
++	spin_unlock_irqrestore(&vif->sta_lock, flags);
++}
++
++/* Resolve the peer MAC address for dump index @idx.
++ *
++ * In AP and GO mode this walks the associated stations. In managed mode the
++ * only peer cfg80211 knows about is the AP the interface is connected to, so
++ * index 0 reports the current BSSID and there is nothing beyond it.
++ */
++static int sprdwl_dump_station_addr(struct sprdwl_vif *vif, int idx, u8 *mac)
++{
++	unsigned long flags;
++	int ret = -ENOENT;
++
++	if (vif->mode == SPRDWL_MODE_AP || vif->mode == SPRDWL_MODE_P2P_GO) {
++		spin_lock_irqsave(&vif->sta_lock, flags);
++		if (idx < vif->sta_num) {
++			ether_addr_copy(mac, vif->sta_addr[idx]);
++			ret = 0;
++		}
++		spin_unlock_irqrestore(&vif->sta_lock, flags);
++	} else if (!idx && vif->sm_state == SPRDWL_CONNECTED &&
++		   !is_zero_ether_addr(vif->bssid)) {
++		ether_addr_copy(mac, vif->bssid);
++		ret = 0;
++	}
++
++	return ret;
++}
++
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,19, 2))
+ static int sprdwl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev, unsigned int link_id)
+ #else
+ static int sprdwl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev)
+ #endif
+ {
+-#ifdef DFS_MASTER
+ 	struct sprdwl_vif *vif = netdev_priv(ndev);
+-#endif
++
+ 	wl_ndev_log(L_DBG, ndev, "%s\n", __func__);
+ #ifdef DFS_MASTER
+ 	sprdwl_abort_cac(vif);
+ #endif
++	sprdwl_clear_assoc_sta(vif);
+ 
+ 	netif_carrier_off(ndev);
+ 	return 0;
+@@ -1465,6 +1544,36 @@ static int sprdwl_cfg80211_set_channel(struct wiphy *wiphy,
+ 				  (chan->center_freq));
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
++static int sprdwl_cfg80211_dump_station(struct wiphy *wiphy,
++					struct wireless_dev *wdev, int idx,
++					u8 *mac, struct station_info *sinfo)
++{
++	struct sprdwl_vif *vif = netdev_priv(wdev->netdev);
++	int ret;
++
++	ret = sprdwl_dump_station_addr(vif, idx, mac);
++	if (ret)
++		return ret;
++
++	return sprdwl_cfg80211_get_station(wiphy, wdev, mac, sinfo);
++}
++#else
++static int sprdwl_cfg80211_dump_station(struct wiphy *wiphy,
++					struct net_device *ndev, int idx,
++					u8 *mac, struct station_info *sinfo)
++{
++	struct sprdwl_vif *vif = netdev_priv(ndev);
++	int ret;
++
++	ret = sprdwl_dump_station_addr(vif, idx, mac);
++	if (ret)
++		return ret;
++
++	return sprdwl_cfg80211_get_station(wiphy, ndev, mac, sinfo);
++}
++#endif
++
+ void sprdwl_report_softap(struct sprdwl_vif *vif, u8 is_connect, u8 *addr,
+ 			  u8 *req_ie, u16 req_ie_len)
+ {
+@@ -1487,6 +1596,7 @@ void sprdwl_report_softap(struct sprdwl_vif *vif, u8 is_connect, u8 *addr,
+ 	}
+ 
+ 	if (is_connect) {
++		sprdwl_add_assoc_sta(vif, addr);
+ 		if (!netif_carrier_ok(vif->ndev)) {
+ 			netif_carrier_on(vif->ndev);
+ 			netif_wake_queue(vif->ndev);
+@@ -1498,6 +1608,7 @@ void sprdwl_report_softap(struct sprdwl_vif *vif, u8 is_connect, u8 *addr,
+ #endif
+ 		wl_ndev_log(L_DBG, vif->ndev, "New station (%pM) connected\n", addr);
+ 	} else {
++		sprdwl_del_assoc_sta(vif, addr);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
+ 		cfg80211_del_sta(&vif->wdev, addr, GFP_KERNEL);
+ #else
+@@ -3563,6 +3674,7 @@ static struct cfg80211_ops sprdwl_cfg80211_ops = {
+ 	.del_station = sprdwl_cfg80211_del_station,
+ 	.change_station = sprdwl_cfg80211_change_station,
+ 	.get_station = sprdwl_cfg80211_get_station,
++	.dump_station = sprdwl_cfg80211_dump_station,
+ 	.libertas_set_mesh_channel = sprdwl_cfg80211_set_channel,
+ 	.scan = sprdwl_cfg80211_scan,
+ 	.connect = sprdwl_cfg80211_connect,
+diff --git a/unisocwifi/main.c b/unisocwifi/main.c
+index 98b9b01..9872971 100644
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -1290,6 +1290,8 @@ static void sprdwl_init_vif(struct sprdwl_priv *priv, struct sprdwl_vif *vif,
+ 	strcpy(vif->name, name);
+ 	vif->priv = priv;
+ 	vif->sm_state = SPRDWL_DISCONNECTED;
++	spin_lock_init(&vif->sta_lock);
++	vif->sta_num = 0;
+ #ifdef ACS_SUPPORT
+ 	/* Init ACS */
+ 	INIT_LIST_HEAD(&vif->survey_info_list);
+diff --git a/unisocwifi/sprdwl.h b/unisocwifi/sprdwl.h
+index 7a51d58..03fe6ed 100644
+--- a/unisocwifi/sprdwl.h
++++ b/unisocwifi/sprdwl.h
+@@ -89,6 +89,11 @@ struct scan_result {
+ 	unsigned char bssid[6];
+ };
+ 
++/* Jumlah station yang dilacak untuk keperluan dump_station. Firmware
++ * membatasi tabel station-nya jauh di bawah angka ini.
++ */
++#define SPRDWL_MAX_ASSOC_STA	16
++
+ struct sprdwl_vif {
+ 	struct net_device *ndev;	/* Linux net device */
+ 	struct wireless_dev wdev;	/* Linux wireless device */
+@@ -144,6 +149,11 @@ struct sprdwl_vif {
+ #endif
+ 	bool has_rand_mac;
+ 	u8 random_mac[ETH_ALEN];
++
++	/* stations associated in AP/GO mode, for cfg80211 dump_station */
++	spinlock_t sta_lock;
++	u8 sta_num;
++	u8 sta_addr[SPRDWL_MAX_ASSOC_STA][ETH_ALEN];
+ };
+ 
+ enum sprdwl_hw_type {

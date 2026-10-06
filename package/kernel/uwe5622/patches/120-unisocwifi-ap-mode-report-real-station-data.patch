@@ -1,0 +1,159 @@
+Subject: [PATCH] unisocwifi: report only real per-station data in AP mode
+
+get_station ignores the MAC it is given and returns the reply of
+WIFI_CMD_GET_STATION together with the netdev byte and packet totals. In AP
+and GO mode every associated client therefore showed the same signal,
+bitrate, tx_failed and traffic counters.
+
+Disassembly of the firmware handler (wcnmodem.bin, MARLIN3_19B_W21.05.3,
+handler at 0x143c0c) shows why those values cannot be fixed on the host
+side: the command has no peer selector, and the handler resolves a station
+entry only in STA and P2P client mode. In AP and GO mode it never calls its
+rate helper (0x128e90), so the rate is empty, and the signal it returns is a
+calibration offset, not a measurement. LINK_STAT, STA_LUT_INDICATION and
+WFD_MIB_COUNTER carry no per-peer signal or rate either. See
+docs/WCNMODEM-REVERSE-ENGINEERING.md.
+
+In AP and GO mode, answer get_station from the driver's own station table:
+return -ENOENT for unknown peers, and for known peers report only what the
+driver has observed: the ASSOCIATED flag (the firmware association report)
+and a per-station connected_time. Authentication and authorization belong to
+hostapd (802.1X, 4-way handshake) and are not claimed. Signal, bitrate,
+tx_failed and the traffic counters are left unset. Managed mode is
+unchanged.
+
+When the station table is full a peer may be associated without being
+listed. get_station then succeeds with an empty station_info: hostapd's
+inactivity check does not treat the peer as lost, and nothing is reported
+about it.
+
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 9d6e386..4811427 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1250,7 +1250,11 @@ static void sprdwl_add_assoc_sta(struct sprdwl_vif *vif, const u8 *addr)
+ 
+ 	if (vif->sta_num < SPRDWL_MAX_ASSOC_STA) {
+ 		ether_addr_copy(vif->sta_addr[vif->sta_num], addr);
++		vif->sta_assoc_jiffies[vif->sta_num] = jiffies;
+ 		vif->sta_num++;
++	} else {
++		wl_ndev_log(L_WARN, vif->ndev,
++			    "station table full, %pM not listed\n", addr);
+ 	}
+ out:
+ 	spin_unlock_irqrestore(&vif->sta_lock, flags);
+@@ -1267,9 +1271,12 @@ static void sprdwl_del_assoc_sta(struct sprdwl_vif *vif, const u8 *addr)
+ 			continue;
+ 		/* keep the array dense: move the last entry into the hole */
+ 		vif->sta_num--;
+-		if (i != vif->sta_num)
++		if (i != vif->sta_num) {
+ 			ether_addr_copy(vif->sta_addr[i],
+ 					vif->sta_addr[vif->sta_num]);
++			vif->sta_assoc_jiffies[i] =
++				vif->sta_assoc_jiffies[vif->sta_num];
++		}
+ 		break;
+ 	}
+ 	spin_unlock_irqrestore(&vif->sta_lock, flags);
+@@ -1311,6 +1318,65 @@ static int sprdwl_dump_station_addr(struct sprdwl_vif *vif, int idx, u8 *mac)
+ 	return ret;
+ }
+ 
++/* Fill station_info for a peer associated to our AP or GO interface.
++ *
++ * WIFI_CMD_GET_STATION carries no peer selector. Reverse engineering of the
++ * Marlin3 firmware (wcnmodem.bin, MARLIN3_19B_W21.05.3) shows that its
++ * handler only looks up a station entry in STA and P2P client mode, where the
++ * single peer is the AP we are connected to. In AP and GO mode it returns an
++ * empty rate and a signal value that is a fixed calibration offset rather
++ * than a measurement. The firmware does keep per-peer rate state internally,
++ * but no host command or event exports it.
++ *
++ * Report only what the driver knows per peer: that the firmware reported it
++ * as associated, and for how long. Signal, bitrate, failure and traffic
++ * counters are left unset instead of copying interface-wide or meaningless
++ * values into every station.
++ */
++static int sprdwl_ap_get_station(struct sprdwl_vif *vif, const u8 *mac,
++				 struct station_info *sinfo)
++{
++	unsigned long flags;
++	bool found = false;
++	bool table_full;
++	int i;
++
++	spin_lock_irqsave(&vif->sta_lock, flags);
++	for (i = 0; i < vif->sta_num; i++) {
++		if (!ether_addr_equal(vif->sta_addr[i], mac))
++			continue;
++		found = true;
++
++		sinfo->connected_time =
++			jiffies_to_msecs(jiffies - vif->sta_assoc_jiffies[i]) /
++			MSEC_PER_SEC;
++		sinfo->filled |= BIT(NL80211_STA_INFO_CONNECTED_TIME);
++
++		/* All the driver has seen is the firmware's association
++		 * report. Authentication and authorization (802.1X/4-way
++		 * handshake) are hostapd's state and are not claimed here.
++		 */
++		sinfo->sta_flags.mask = BIT(NL80211_STA_FLAG_ASSOCIATED);
++		sinfo->sta_flags.set = BIT(NL80211_STA_FLAG_ASSOCIATED);
++		sinfo->filled |= BIT(NL80211_STA_INFO_STA_FLAGS);
++		break;
++	}
++	table_full = vif->sta_num >= SPRDWL_MAX_ASSOC_STA;
++	spin_unlock_irqrestore(&vif->sta_lock, flags);
++
++	if (found)
++		return 0;
++
++	/* Once the table is full a peer may be associated without being
++	 * listed. Succeed with an empty station_info, so that hostapd does not
++	 * disconnect it as lost, but report nothing about it.
++	 */
++	if (table_full)
++		return 0;
++
++	return -ENOENT;
++}
++
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,19, 2))
+ static int sprdwl_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev, unsigned int link_id)
+ #else
+@@ -1430,6 +1496,9 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 	struct sprdwl_rate_info *rate;
+ 	int ret;
+ 
++	if (vif->mode == SPRDWL_MODE_AP || vif->mode == SPRDWL_MODE_P2P_GO)
++		return sprdwl_ap_get_station(vif, mac, sinfo);
++
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BYTES) |
+ 			 BIT(NL80211_STA_INFO_TX_PACKETS) |
+ 			 BIT(NL80211_STA_INFO_RX_BYTES) |
+@@ -1523,6 +1592,9 @@ static int sprdwl_cfg80211_get_station(struct wiphy *wiphy,
+ 	struct sprdwl_rate_info *rate;
+ 	int ret;
+ 
++	if (vif->mode == SPRDWL_MODE_AP || vif->mode == SPRDWL_MODE_P2P_GO)
++		return sprdwl_ap_get_station(vif, mac, sinfo);
++
+ 	sinfo->filled |= BIT(NL80211_STA_INFO_TX_BYTES) |
+ 			 BIT(NL80211_STA_INFO_TX_PACKETS) |
+ 			 BIT(NL80211_STA_INFO_RX_BYTES) |
+diff --git a/unisocwifi/sprdwl.h b/unisocwifi/sprdwl.h
+index 6d5e75a..a6129bd 100644
+--- a/unisocwifi/sprdwl.h
++++ b/unisocwifi/sprdwl.h
+@@ -159,6 +159,8 @@ struct sprdwl_vif {
+ 	spinlock_t sta_lock;
+ 	u8 sta_num;
+ 	u8 sta_addr[SPRDWL_MAX_ASSOC_STA][ETH_ALEN];
++	/* jiffies at association, per sta_addr[] slot */
++	unsigned long sta_assoc_jiffies[SPRDWL_MAX_ASSOC_STA];
+ };
+ 
+ enum sprdwl_hw_type {

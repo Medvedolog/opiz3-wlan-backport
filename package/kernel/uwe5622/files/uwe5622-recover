@@ -1,0 +1,86 @@
+#!/bin/sh
+# Bring Wi-Fi back after a CP (firmware) assert without a reboot.
+#
+# On an assert the BSP powers the Wi-Fi subsystem off and removes the
+# SDIO card (marlin_cp2_reset), and sprdwl_ng stops its TX path and emits
+# a "change" uevent on the unisoc_wifi platform device. The vendor stack
+# expects userspace to reload the driver: the next probe calls
+# start_marlin(), which rescans SDIO and downloads the firmware again.
+#
+# Step 1 reloads sprdwl_ng only. If no phy appears, step 2 unloads both
+# modules and resets the SDIO host (unbind/bind of its platform device):
+# on the Zero 3 the BSP cannot switch the module's power ("chip en dummy"),
+# so the host reset, which toggles the reset line through wifi-pwrseq, is
+# the only real chip reset short of a reboot. Then both modules are loaded
+# as at boot. Needs patch 250, which makes the BSP unregister its SDIO
+# driver; without it a reload fails with -EBUSY.
+# The radio, its phy and its SDIO host are looked up (/lib/uwe5622.sh),
+# not assumed to be radio0/phy0/mmc1: a USB adapter can take those.
+# At most MAX_TRIES recoveries per WINDOW seconds, so a configuration
+# that asserts on every start does not loop forever.
+
+MAX_TRIES=3
+WINDOW=1800
+STATE=/tmp/uwe5622-recover.times
+TAG=uwe5622-recover
+
+. /lib/uwe5622.sh
+
+log() { logger -t "$TAG" "$*"; }
+
+lock /var/lock/uwe5622-recover
+
+now=$(date +%s)
+recent=$(awk -v n="$now" -v w="$WINDOW" 'n - $1 < w' "$STATE" 2>/dev/null | wc -l)
+if [ "$recent" -ge "$MAX_TRIES" ]; then
+	log "$recent recoveries in ${WINDOW}s, giving up; reboot to restore Wi-Fi"
+	lock -u /var/lock/uwe5622-recover
+	exit 1
+fi
+echo "$now" >> "$STATE"
+
+log "recovering Wi-Fi (attempt $((recent + 1))/$MAX_TRIES)"
+uwe_wifi down 2>/dev/null
+sleep 2
+
+ok=0
+if uwe_unload sprdwl_ng && uwe_load_wifi && uwe_wait_phy >/dev/null; then
+	ok=1
+else
+	log "driver reload did not bring the radio back, resetting the SDIO host"
+	host=$(uwe_mmc_host)
+	if uwe_unload sprdwl_ng && uwe_unload uwe5622_bsp_sdio; then
+		if [ -n "$host" ] && [ -e "$host/driver" ]; then
+			drv=$(readlink -f "$host/driver")
+			name=${host##*/}
+			log "SDIO host $name: unbind/bind"
+			echo "$name" > "$drv/unbind"
+			sleep 1
+			echo "$name" > "$drv/bind"
+			i=0
+			while ! ls /sys/bus/sdio/devices/ 2>/dev/null | grep -q . &&
+			      [ "$i" -lt 10 ]; do
+				sleep 1; i=$((i + 1))
+			done
+		else
+			log "SDIO host not found, reloading the modules only"
+		fi
+		if /sbin/modprobe uwe5622_bsp_sdio; then
+			sleep 5
+			uwe_load_wifi && uwe_wait_phy >/dev/null && ok=1
+		fi
+	else
+		log "modules could not be unloaded"
+	fi
+fi
+
+if [ "$ok" = 1 ]; then
+	/usr/sbin/uwe5622-clamp-htmode
+	uwe_wifi up
+	log "Wi-Fi recovered ($(uwe_phy))"
+else
+	log "recovery failed; reboot to restore Wi-Fi"
+fi
+
+lock -u /var/lock/uwe5622-recover
+[ "$ok" = 1 ]

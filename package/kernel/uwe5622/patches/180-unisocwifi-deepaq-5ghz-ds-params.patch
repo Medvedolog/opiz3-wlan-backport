@@ -1,0 +1,60 @@
+From: DeepAQ <5405949+DeepAQ@users.noreply.github.com>
+Subject: [PATCH] unisocwifi: restore DS Params for 5 GHz START_AP
+
+Port the 5 GHz AP compatibility fix from DeepAQ/openwrt-uwe5622-sunxi
+commit 0539b491bc4552bd74e9d7bd79eb6df715b5b5b8 ("Fix 5GHz AP").
+
+The vendor firmware START_AP path expects a DS Parameter Set IE while
+hostapd normally omits that IE on 5 GHz. If DS Params are absent, recover
+the primary channel from HT Operation and append a DS Params IE to the
+driver's private beacon-head copy before the frame is handed to firmware.
+
+Compared with the original DeepAQ change, harden the port for the current
+standalone driver tree:
+- bound the DS IE search to the actual IE bytes instead of passing the full
+  head length from u.beacon.variable (which can read beyond the allocation);
+- keep cfg80211_find_ie() results const;
+- require a non-empty HT Operation body before reading the primary channel.
+
+Only the private head buffer used to build WIFI_CMD_START_AP is modified.
+The cfg80211/hostapd beacon template is left untouched.
+
+Origin: https://github.com/DeepAQ/openwrt-uwe5622-sunxi/commit/0539b491bc4552bd74e9d7bd79eb6df715b5b5b8
+Signed-off-by: Medvedolog <noreply@github.com>
+---
+ unisocwifi/cfg80211.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1025,6 +1025,30 @@ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
+ 		head_len = beacon->head_len;
+ 		tail_len = beacon->tail_len;
+ 	}
++
++	/*
++	 * Firmware START_AP compatibility: hostapd omits DS Parameter Set on
++	 * 5 GHz, while this firmware path expects a primary channel there.
++	 * Recover it from HT Operation and add DS Params only to our private
++	 * head copy. Do not modify cfg80211/hostapd's beacon template.
++	 */
++	if (head_len > offsetof(struct ieee80211_mgmt, u.beacon.variable) &&
++	    !cfg80211_find_ie(WLAN_EID_DS_PARAMS,
++			((struct ieee80211_mgmt *)head)->u.beacon.variable,
++			head_len - offsetof(struct ieee80211_mgmt,
++					    u.beacon.variable))) {
++		const u8 *ie = cfg80211_find_ie(WLAN_EID_HT_OPERATION,
++						 tail, tail_len);
++
++		if (ie && ie[1] >= 1) {
++			wl_ndev_log(L_ERR, ndev,
++				    "DS_PARAMS not present in beacon head, using channel %d from HT_OPERATION\n",
++				    ie[2]);
++			head[head_len++] = WLAN_EID_DS_PARAMS;
++			head[head_len++] = 1;
++			head[head_len++] = ie[2];
++		}
++	}
+ 
+ 	sprdwl_change_beacon(vif, beacon);
+ 

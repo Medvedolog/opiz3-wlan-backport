@@ -1,0 +1,107 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwcn: unregister the SDIO driver on Allwinner
+
+With CONFIG_AW_BOARD sdiohal_remove_card() returns before
+sdio_unregister_driver(). Consequences seen on an Orange Pi Zero 3:
+
+- every power-on after the first (driver reload, CP assert recovery)
+  registers the driver again: "Driver 'sdiohal' is already registered",
+  sdio_register_driver() -16, "wait SDIO rescan card time out",
+  "chip power on fail";
+- unloading uwe5622_bsp_sdio leaves the SDIO core holding a registered
+  driver whose code is gone; the next load hits the same -EBUSY.
+
+Track the registration and unregister on removal (Allwinner included),
+before re-registering, and on module exit. Initialise remove_done before
+unregistering: sdiohal_remove() completes it and on Allwinner nothing
+initialised it. Also release the scan wakeup lock when registration
+fails.
+---
+diff --git a/unisocwcn/sdio/sdiohal_main.c b/unisocwcn/sdio/sdiohal_main.c
+--- a/unisocwcn/sdio/sdiohal_main.c
++++ b/unisocwcn/sdio/sdiohal_main.c
+@@ -2120,12 +2120,37 @@ static struct sdio_driver sdiohal_driver = {
+ };
+ 
+ #define WCN_SDIO_CARD_REMOVED	BIT(4)
++
++/* Whether sdiohal_driver is registered with the SDIO core. */
++static bool sdiohal_drv_registered;
++
++static void sdiohal_unregister(void)
++{
++	struct sdiohal_data_t *p_data = sdiohal_get_data();
++
++	if (!sdiohal_drv_registered)
++		return;
++	/* sdiohal_remove() completes it; on Allwinner nothing else
++	 * initialises it before the first removal
++	 */
++	if (p_data)
++		init_completion(&p_data->remove_done);
++	sdio_unregister_driver(&sdiohal_driver);
++	sdiohal_drv_registered = false;
++}
++
+ void sdiohal_remove_card(void)
+ {
+ 	struct sdiohal_data_t *p_data = sdiohal_get_data();
+ #ifdef CONFIG_AW_BOARD
+ //	int wlan_bus_index = sunxi_wlan_get_bus_index();
+-	/* don't need to remove sdio card. */
++	/* The card itself is not removed on Allwinner (non-removable, no
++	 * card-detect control), but the driver has to be unregistered:
++	 * otherwise the next power-on registers it again and fails with
++	 * -EBUSY, and unloading the module leaves the SDIO core holding a
++	 * driver whose code is gone. sdiohal_remove() marks the card absent.
++	 */
++	sdiohal_unregister();
+ 	return;
+ #endif
+ 
+@@ -2169,7 +2194,7 @@ void sdiohal_remove_card(void)
+ 	else
+ 		sdiohal_info("remove card end\n");
+ 
+-	sdio_unregister_driver(&sdiohal_driver);
++	sdiohal_unregister();
+ 	sdiohal_unlock_scan_ws();
+ }
+ 
+@@ -2269,21 +2294,25 @@ int sdiohal_scan_card(void)
+ 	sdiohal_lock_scan_ws();
+ 	sdiohal_resume_check();
+ 	init_completion(&p_data->scan_done);
++	/* a registration left over from an earlier power-on */
++	sdiohal_unregister();
+ 	ret = sdio_register_driver(&sdiohal_driver);
+ 	if (ret != 0) {
++		sdiohal_unlock_scan_ws();
+ 		sdiohal_err("sdio_register_driver error :%d\n", ret);
+ 		return ret;
+ 	}
++	sdiohal_drv_registered = true;
+ 	if (wait_for_completion_timeout(&p_data->scan_done,
+ 		msecs_to_jiffies(2500)) == 0) {
+ 		sdiohal_unlock_scan_ws();
+-		sdio_unregister_driver(&sdiohal_driver);
++		sdiohal_unregister();
+ 		sdiohal_err("wait scan card time out\n");
+ 		return -ENODEV;
+ 	}
+ 	if (!p_data->sdio_dev_host) {
+ 		sdiohal_unlock_scan_ws();
+-		sdio_unregister_driver(&sdiohal_driver);
++		sdiohal_unregister();
+ 		sdiohal_err("sdio_dev_host is NULL!\n");
+ 		return -ENODEV;
+ 	}
+@@ -2355,6 +2384,8 @@ void sdiohal_exit(void)
+ 		sdiohal_info("Already exist card!\n");
+ 		sdiohal_remove_card();
+ 	}
++	/* never leave the driver registered past module unload */
++	sdiohal_unregister();
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
+ 	/* GPIO managed automatically with devm_gpiod_get */
+ #else

@@ -1,0 +1,30 @@
+From: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+Subject: [PATCH] uwe5622: select the radio_idx set_wiphy_params prototype on backports
+
+cfg80211 grew a radio_idx argument for set_wiphy_params in 6.17, and the
+driver already carries both prototypes. OpenWrt backports that API onto
+older target kernels, so on a 6.12 target the kernel version test picks the
+old prototype while the backported header declares the new one:
+
+  error: initialization of 'int (*)(struct wiphy *, int, u32)' from
+  incompatible pointer type 'int (*)(struct wiphy *, u32)'
+
+Extend the guard with OPENWRT_CFG80211_BACKPORT, the same way the
+change_beacon prototype is already selected.
+
+Signed-off-by: Rizki Ramadhan <achmadrizkiramadhan0101@gmail.com>
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index 61be02f..bd6e7a4 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -2328,7 +2328,8 @@ err:
+ 	return ret;
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0) || \
++	defined(OPENWRT_CFG80211_BACKPORT)
+ static int sprdwl_cfg80211_set_wiphy_params(struct wiphy *wiphy, int radio_idx, u32 changed)
+ #else
+ static int sprdwl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)

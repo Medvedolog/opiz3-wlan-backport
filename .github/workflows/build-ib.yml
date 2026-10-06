@@ -1,0 +1,674 @@
+name: Build image (official ImageBuilder + own apk repo)
+
+# Official OpenWrt kernel, so every kmod from downloads.openwrt.org installs
+# with apk. What OpenWrt does not ship is built with the official SDK (same
+# kernel ABI), signed with our key and published as an apk repository on
+# GitHub Pages:
+#   kmod-uwe5622, uwe5622-firmware, AmneziaWG, Footstrap, iwinfo (UWE5622 name)
+# The Orange Pi Zero 3 DTB in the ImageBuilder gets the Wi-Fi nodes
+# (scripts/zero3-dtb-add-wifi.py, same result as kernel patch 900).
+#
+# One-time setup in the repository settings:
+#   Settings > Secrets and variables > Actions > APK_SIGN_KEY
+#       (EC private key: openssl ecparam -name prime256v1 -genkey -noout)
+#   Settings > Pages > Source: Deploy from a branch, gh-pages / (root)
+#     (the branch appears after the first successful publish)
+# Without APK_SIGN_KEY the build still runs with a throw-away key, but
+# nothing is published.
+
+on:
+  push:
+    branches:
+      - ci/uwe5622-build20-control
+    paths:
+      - 'package/**'
+      - 'scripts/zero3-dtb-add-wifi.py'
+      - 'scripts/fit-replace-dtb.py'
+      - 'scripts/stable-mtimes.py'
+      - '.github/workflows/build-ib.yml'
+  workflow_dispatch:
+    inputs:
+      rebuild_packages:
+        description: Build the packages even if nothing they depend on changed
+        type: boolean
+        default: false
+      clean_sdk:
+        description: Start the SDK build from scratch (ignore the build cache)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RELEASE: 25.12.5
+  TARGET: sunxi
+  SUBTARGET: cortexa53
+  ARCH: aarch64_cortex-a53
+  PROFILE: xunlong_orangepi-zero3
+  # board name, ImageBuilder profile, DTB; Zero 2 shares the Wi-Fi wiring of
+  # the Zero 3 (sun50i-h616-orangepi-zero.dtsi, PG18 reset) but is untested
+  BOARDS: >-
+    zero3:xunlong_orangepi-zero3:sun50i-h618-orangepi-zero3
+    zero2:xunlong_orangepi-zero2:sun50i-h616-orangepi-zero2
+  SDK_SUFFIX: sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64
+  FOOTSTRAP_TAG: v0.14.13
+  FOOTSTRAP_VERSION: 0.14.13
+  AWG_COMMIT: 3f3ec68d594c8e965c988af75ac5314616229c88
+  KEY_NAME: opiz3-wlan
+  # our packages only; anything else the SDK rebuilt as a dependency stays out
+  OWN_PACKAGES: >-
+    kmod-uwe5622 uwe5622-firmware
+    kmod-amneziawg amneziawg-tools luci-app-amneziawg
+    luci-theme-footstrap luci-app-opiz3-status
+    iwinfo libiwinfo libiwinfo-data
+
+jobs:
+  # Packages are rebuilt only when something they depend on changed
+  # (package/, this job, the signing key); otherwise the signed repository of
+  # the last build is reused from the cache. When they are rebuilt, the SDK
+  # build_dir/staging_dir/dl come from the cache of the previous build and
+  # scripts/stable-mtimes.py keeps unchanged packages from rebuilding, so a
+  # driver change recompiles just the driver.
+  packages:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Signing key
+        id: key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          if [ -n "$APK_SIGN_KEY" ]; then
+            printf '%s\n' "$APK_SIGN_KEY" > "$RUNNER_TEMP/private-key.pem"
+            ID=$(openssl ec -in "$RUNNER_TEMP/private-key.pem" -pubout 2>/dev/null \
+                 | sha256sum | cut -c1-12)
+            echo "Using APK_SIGN_KEY ($ID)"
+          else
+            # a throw-away key is made only if the packages are built; a
+            # cached repository brings the key it was signed with
+            ID=throwaway
+            echo "::warning::APK_SIGN_KEY not set: throw-away key, nothing will be published"
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Inputs of the package build
+        id: inputs
+        run: |
+          H=$(python3 - <<'EOF'
+          import hashlib, os, yaml
+          h = hashlib.sha256()
+          wf = yaml.safe_load(open(".github/workflows/build-ib.yml"))
+          h.update(repr((wf["env"], wf["jobs"]["packages"])).encode())
+          for top in ("package", "scripts/stable-mtimes.py"):
+              paths = [top] if os.path.isfile(top) else sorted(
+                  os.path.join(r, f) for r, _, fs in os.walk(top) for f in fs)
+              for path in paths:
+                  h.update(path.encode() + b"\0" + open(path, "rb").read())
+          print(h.hexdigest()[:16])
+          EOF
+          )
+          echo "hash=$H" >> "$GITHUB_OUTPUT"
+          echo "package inputs: $H"
+
+      - name: Reuse packages built from the same inputs
+        id: repo
+        if: ${{ !inputs.rebuild_packages }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            repo/
+            ${{ env.KEY_NAME }}.pem
+          key: apk-repo-${{ env.RELEASE }}-${{ steps.key.outputs.id }}-${{ steps.inputs.outputs.hash }}
+
+      - name: Install build dependencies
+        if: steps.repo.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
+
+      - name: Download SDK ${{ env.RELEASE }}
+        if: steps.repo.outputs.cache-hit != 'true'
+        run: |
+          BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
+          SDK=openwrt-sdk-$RELEASE-$SDK_SUFFIX
+          curl -fsSL -O "$BASE/$SDK.tar.zst"
+          tar --zstd -xf "$SDK.tar.zst"
+          rm "$SDK.tar.zst"
+          mv "$SDK" sdk
+
+          if [ -f "$RUNNER_TEMP/private-key.pem" ]; then
+            cp "$RUNNER_TEMP/private-key.pem" sdk/private-key.pem
+          else
+            openssl ecparam -name prime256v1 -genkey -noout -out sdk/private-key.pem
+          fi
+          openssl ec -in sdk/private-key.pem -pubout > sdk/public-key.pem
+          cp sdk/public-key.pem "$KEY_NAME.pem"
+
+      - name: Restore the SDK build cache
+        if: steps.repo.outputs.cache-hit != 'true' && !inputs.clean_sdk
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            sdk/build_dir
+            sdk/staging_dir
+            sdk/dl
+          key: sdk-build-${{ env.RELEASE }}-${{ github.run_id }}
+          restore-keys: sdk-build-${{ env.RELEASE }}-
+
+      - name: Feeds and sources
+        if: steps.repo.outputs.cache-hit != 'true'
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install iwinfo
+          ./scripts/feeds install luci-base
+
+          # cfg80211 backport headers for the UWE5622 driver (not in the SDK)
+          BASE_COMMIT=$(sed -n 's|.*openwrt.git^\([0-9a-f]*\).*|\1|p' feeds.conf.default)
+          curl -fsSL -o ow.tar.gz "https://codeload.github.com/openwrt/openwrt/tar.gz/$BASE_COMMIT"
+          tar -xzf ow.tar.gz "openwrt-$BASE_COMMIT/package/kernel/mac80211"
+          mv "openwrt-$BASE_COMMIT/package/kernel/mac80211" package/kernel/
+          rm -rf ow.tar.gz "openwrt-$BASE_COMMIT"
+
+          rm -rf package/kernel/uwe5622 package/firmware/uwe5622-firmware
+          cp -r ../package/kernel/uwe5622 package/kernel/
+          mkdir -p package/firmware
+          cp -r ../package/firmware/uwe5622-firmware package/firmware/
+          chmod +x package/kernel/uwe5622/files/*
+          rm -rf package/luci-app-opiz3-status
+          cp -r ../package/luci/luci-app-opiz3-status package/
+
+          # iwinfo: our patch on the official package's source version
+          # follow the link "feeds install" created; feeds/base itself may be a link
+          IW=$(readlink -f package/feeds/base/iwinfo || true)
+          if [ ! -f "$IW/Makefile" ]; then
+            ls -la feeds/ package/feeds/ 2>&1 | head -20 || true
+            IW=$(dirname "$(find -L feeds -path '*/utils/iwinfo/Makefile' | head -1)")
+          fi
+          test -f "$IW/Makefile"
+          echo "iwinfo package: $IW"
+          mkdir -p "$IW/patches"
+          cp ../package/network/utils/iwinfo/patches/*.patch "$IW/patches/"
+          # the official repo carries a newer iwinfo than the SDK feed (built
+          # from the release branch), so build that same source version
+          curl -fsSL -o "$IW/Makefile" \
+            "https://raw.githubusercontent.com/openwrt/openwrt/openwrt-${RELEASE%.*}/package/network/utils/iwinfo/Makefile"
+          grep -E '^PKG_SOURCE_(DATE|VERSION)' "$IW/Makefile"
+          # and a release that is always above the official package
+          sed -i '/^PKG_RELEASE:=/d' "$IW/Makefile"
+          sed -i 's|^include \$(INCLUDE_DIR)/package.mk|PKG_RELEASE:=101\n&|' "$IW/Makefile"
+          grep -n '^PKG_RELEASE:=101' "$IW/Makefile"
+
+          git clone --depth 1 --branch "$FOOTSTRAP_TAG" \
+            https://github.com/VizzleTF/luci-theme-footstrap.git /tmp/footstrap
+          rm -rf package/luci-theme-footstrap
+          cp -a /tmp/footstrap/luci-theme-footstrap package/
+
+          git clone https://github.com/2Grey/awg-openwrt.git /tmp/awg
+          git -C /tmp/awg checkout "$AWG_COMMIT"
+          for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
+            rm -rf "package/$p"
+            cp -a "/tmp/awg/$p" package/
+          done
+          # luci.mk takes the version from git, which the copy does not
+          # have, so the package came out as version 0: use the module's
+          AWG_VERSION=$(sed -n 's/^PKG_VERSION:=//p' package/kmod-amneziawg/Makefile)
+          sed -i "s|^include \$(TOPDIR)/feeds/luci/luci.mk|PKG_VERSION:=$AWG_VERSION\nPKG_RELEASE:=1\n\n&|" \
+            package/luci-app-amneziawg/Makefile
+          grep -n '^PKG_VERSION:=' package/luci-app-amneziawg/Makefile
+
+          # feeds install already scanned the tree; mac80211 comes from a
+          # tarball with old mtimes, so drop the cached package index to
+          # make the next make rescan everything
+          rm -rf tmp
+
+          # unchanged packages keep their stamps in the cached build_dir
+          python3 ../scripts/stable-mtimes.py package $(readlink -f feeds/*)
+
+      - name: Configure
+        if: steps.repo.outputs.cache-hit != 'true'
+        working-directory: sdk
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_sunxi=y
+          CONFIG_TARGET_sunxi_cortexa53=y
+          CONFIG_SIGNED_PACKAGES=y
+          CONFIG_PACKAGE_kmod-uwe5622=m
+          CONFIG_PACKAGE_uwe5622-firmware=m
+          CONFIG_PACKAGE_kmod-amneziawg=m
+          CONFIG_PACKAGE_amneziawg-tools=m
+          CONFIG_PACKAGE_luci-app-amneziawg=m
+          CONFIG_PACKAGE_luci-theme-footstrap=m
+          CONFIG_PACKAGE_luci-app-opiz3-status=m
+          CONFIG_PACKAGE_iwinfo=m
+          CONFIG_PACKAGE_libiwinfo=m
+          CONFIG_PACKAGE_libiwinfo-data=m
+          # keep build directories (AUTOREMOVE deletes them after each
+          # package) and rebuild a package only when its stamp hash changes:
+          # AUTOREBUILD's "build dir newer than .built" check misfires on the
+          # apk-* packaging dirs and rebuilt every kmod on every make call
+          # CONFIG_AUTOREMOVE is not set
+          # CONFIG_AUTOREBUILD is not set
+          EOF
+          sed -i 's/^ *//' .config
+          make defconfig
+          if grep -E '^CONFIG_AUTO(REMOVE|REBUILD)=y' .config; then
+            echo "defconfig turned AUTOREMOVE/AUTOREBUILD back on"; exit 1
+          fi
+
+      - name: Build
+        if: steps.repo.outputs.cache-hit != 'true'
+        working-directory: sdk
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          # one make call: the kernel package (all SDK kmods) is packed once
+          make -j"$(nproc)" V=s \
+            package/kernel/mac80211/compile package/kernel/uwe5622/compile \
+            package/firmware/uwe5622-firmware/compile \
+            package/kmod-amneziawg/compile package/amneziawg-tools/compile \
+            package/luci-app-amneziawg/compile \
+            package/luci-theme-footstrap/compile \
+            package/luci-app-opiz3-status/compile \
+            package/feeds/base/iwinfo/compile > logs/build.log 2>&1 || {
+              tail -200 logs/build.log; exit 1; }
+          # what was actually built, and how long each part took
+          grep -E '^time: ' logs/build.log || true
+
+      - name: Collect, check and index our packages
+        if: steps.repo.outputs.cache-hit != 'true'
+        working-directory: sdk
+        run: |
+          mkdir -p ../repo
+          for n in $OWN_PACKAGES; do
+            # packages with an ABI_VERSION carry it in the name (libiwinfo20230701)
+            f=$(find bin \( -name "$n-[0-9]*.apk" -o -name "$n[0-9]*-[0-9]*.apk" \) | head -1)
+            [ -n "$f" ] || { echo "MISSING $n"; exit 1; }
+            cp "$f" ../repo/
+            echo "  OK      $(basename "$f")"
+          done
+          find bin -name 'luci-i18n-amneziawg-*.apk' -exec cp {} ../repo/ \;
+
+          KO=$(find build_dir -name sprdwl_ng.ko | head -1)
+          for m in 'DS_PARAMS not present in beacon head' \
+                   'channel limits: 2.4 GHz' 'layout mismatch: ret %d'; do
+            strings "$KO" | grep -q "$m" || { echo "driver lacks: $m"; exit 1; }
+          done
+          # the iwinfo patch itself is checked in the image rootfs (image job)
+          find build_dir -maxdepth 3 -name 'iwinfo*' -type d | head -5
+
+          cd ../repo
+          ../sdk/staging_dir/host/bin/apk mkndx --allow-untrusted \
+            --sign ../sdk/private-key.pem --output packages.adb *.apk
+          ../sdk/staging_dir/host/bin/apk adbdump --format json packages.adb \
+            | head -c 600; echo
+          ls -la
+
+      - name: Save the packages for runs with the same inputs
+        if: steps.repo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            repo/
+            ${{ env.KEY_NAME }}.pem
+          key: apk-repo-${{ env.RELEASE }}-${{ steps.key.outputs.id }}-${{ steps.inputs.outputs.hash }}
+
+      - name: Save the SDK build cache
+        if: steps.repo.outputs.cache-hit != 'true'
+        run: |
+          # bin/ is not cached: the packages are written again, signed with
+          # the key of the run
+          rm -rf sdk/build_dir/target-*/root-* sdk/tmp
+          du -sh sdk/build_dir sdk/staging_dir sdk/dl
+
+      - if: steps.repo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            sdk/build_dir
+            sdk/staging_dir
+            sdk/dl
+          key: sdk-build-${{ env.RELEASE }}-${{ github.run_id }}
+
+      - if: always() && steps.repo.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-build-logs
+          path: sdk/logs/
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-repo
+          path: |
+            repo/
+            ${{ env.KEY_NAME }}.pem
+
+  image:
+    needs: packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-repo
+          path: apk-repo
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gawk gettext libncurses-dev \
+            python3 rsync unzip zstd file device-tree-compiler mtools fdisk u-boot-tools
+
+      - name: Download ImageBuilder ${{ env.RELEASE }}
+        run: |
+          BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
+          IB=openwrt-imagebuilder-$RELEASE-$TARGET-$SUBTARGET.Linux-x86_64
+          curl -fsSL -O "$BASE/$IB.tar.zst"
+          tar --zstd -xf "$IB.tar.zst"
+          mv "$IB" ib
+          echo "IB_NAME=$IB" >> "$GITHUB_ENV"
+
+      - name: Add Wi-Fi to the board DTBs
+        working-directory: ib
+        run: |
+          for b in $BOARDS; do
+            name=$(echo "$b" | cut -d: -f1)
+            profile=$(echo "$b" | cut -d: -f2)
+            dts=$(echo "$b" | cut -d: -f3)
+            echo "== $name ($profile, $dts)"
+            DTB=$(find build_dir -path "*/arch/arm64/boot/dts/allwinner/$dts.dtb" | head -1)
+            test -n "$DTB"
+            python3 ../scripts/zero3-dtb-add-wifi.py "$DTB" "/tmp/$name.dtb"
+            cp "/tmp/$name.dtb" "$DTB"
+            test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
+            # the IB has no rule to rebuild the kernel, so put the DTB into
+            # its prebuilt FIT kernel image directly
+            FIT=$(find build_dir -maxdepth 3 -name "$profile-kernel.bin" | head -1)
+            test -n "$FIT"
+            python3 ../scripts/fit-replace-dtb.py "$FIT" "/tmp/$name.dtb" /tmp/fit.itb
+            mv /tmp/fit.itb "$FIT"
+            dumpimage -T flat_dt -p 1 -o /tmp/fit-fdt.dtb "$FIT"
+            cmp /tmp/fit-fdt.dtb "/tmp/$name.dtb"
+          done
+
+      - name: Our repository and key
+        working-directory: ib
+        run: |
+          OWNER=${GITHUB_REPOSITORY%%/*}
+          REPO=${GITHUB_REPOSITORY#*/}
+          URL="https://$OWNER.github.io/$REPO/$RELEASE/$TARGET-$SUBTARGET/packages.adb"
+          echo "REPO_URL=$URL" >> "$GITHUB_ENV"
+
+          cp ../apk-repo/repo/*.apk packages/
+          cp "../apk-repo/$KEY_NAME.pem" keys/
+          echo "$URL" >> repositories
+          cat repositories
+
+          mkdir -p files/etc/apk/keys files/etc/apk/repositories.d files/etc/uci-defaults
+          cp "../apk-repo/$KEY_NAME.pem" files/etc/apk/keys/
+          echo "$URL" > files/etc/apk/repositories.d/customfeeds.list
+          cat > files/etc/uci-defaults/zz-opiz3-footstrap-default <<'EOF'
+          #!/bin/sh
+          uci set luci.themes.Footstrap='/luci-static/footstrap'
+          uci set luci.main.mediaurlbase='/luci-static/footstrap'
+          uci commit luci
+          exit 0
+          EOF
+          sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-footstrap-default
+          chmod +x files/etc/uci-defaults/zz-opiz3-footstrap-default
+
+      - name: Build image
+        working-directory: ib
+        run: |
+          PACKAGES="
+            kmod-uwe5622 uwe5622-firmware wireless-regdb iw iwinfo wpad-basic-mbedtls
+            kmod-mt7601u kmod-mt76x0u kmod-mt76x2u kmod-mt7921u kmod-mt7925u
+            kmod-rt2800-usb kmod-rt73-usb kmod-rtl8xxxu kmod-rtl8192cu
+            kmod-rtw88-8821au kmod-rtw88-8812au kmod-rtw88-8814au kmod-rtw88-8821cu
+            kmod-rtw88-8822bu kmod-rtw88-8822cu kmod-rtw88-8723du
+            kmod-ath9k-htc kmod-ath6kl-usb kmod-brcmfmac
+            luci luci-ssl luci-theme-footstrap luci-theme-bootstrap luci-app-opiz3-status
+            travelmate luci-app-travelmate
+            kmod-amneziawg amneziawg-tools luci-app-amneziawg
+            kmod-wireguard wireguard-tools luci-proto-wireguard kmod-tun
+            sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables-json
+            kmod-nft-tproxy kmod-nf-tproxy kmod-nft-socket kmod-nft-nat
+            kmod-inet-diag kmod-netlink-diag ucode ucode-mod-fs ucode-mod-uci
+            modemmanager uqmi umbim usb-modeswitch comgt comgt-ncm
+            kmod-usb-core kmod-usb2 kmod-usb3
+            kmod-usb-serial kmod-usb-serial-wwan kmod-usb-serial-option kmod-usb-acm
+            kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis
+            kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan
+            kmod-usb-net-cdc-eem kmod-usb-net-cdc-subset kmod-mii
+            kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179
+            kmod-usb-net-smsc95xx kmod-usb-net-lan78xx
+            kmod-usb-net-dm9601-ether kmod-usb-net-sr9700
+            luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager
+            usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty
+            ethtool ip-full ip-bridge tcpdump lsof strace ppp chat iperf3 htop"
+          for b in $BOARDS; do
+            profile=$(echo "$b" | cut -d: -f2)
+            echo "::group::$profile"
+            make image PROFILE="$profile" PACKAGES="$(echo $PACKAGES)" \
+              FILES=files ROOTFS_PARTSIZE=512
+            echo "::endgroup::"
+          done
+
+      - name: Validate image
+        working-directory: ib
+        run: |
+          OUT=bin/targets/$TARGET/$SUBTARGET
+          ls -lh "$OUT"
+          for b in $BOARDS; do
+          name=$(echo "$b" | cut -d: -f1)
+          echo "######## orangepi-$name"
+          IMG=$(ls "$OUT"/*orangepi-$name-*sdcard.img.gz | head -1)
+          MAN=$(ls "$OUT"/*orangepi-$name.manifest | head -1)
+
+          echo "== packages =="
+          for p in kmod-uwe5622 uwe5622-firmware kmod-amneziawg luci-theme-footstrap luci-app-opiz3-status \
+                   travelmate luci-app-travelmate \
+                   libiwinfo-data kmod-cfg80211 wpad-basic-mbedtls; do
+            grep "^$p " "$MAN" || { echo "MISSING $p"; exit 1; }
+          done
+          if grep -qE '^(openvpn-[a-z]+|luci-app-openvpn) ' "$MAN"; then
+            echo "OpenVPN in image"; exit 1; fi
+
+          echo "== DTB inside the image's FIT kernel =="
+          gunzip -c "$IMG" > /tmp/img
+          START=$(sfdisk -J /tmp/img | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["partitiontable"]["partitions"][0]["start"])')
+          rm -f /tmp/uImage
+          mcopy -i "/tmp/img@@$((START * 512))" ::uImage /tmp/uImage
+          # a FIT image is itself a flattened device tree
+          FDT=$(fdtget -l /tmp/uImage /images | grep '^fdt' | head -1)
+          echo "FIT images: $(fdtget -l /tmp/uImage /images | tr '\n' ' ')"
+          fdtget -t bx /tmp/uImage "/images/$FDT" data | python3 -c \
+            'import sys; sys.stdout.buffer.write(bytes(int(b, 16) for b in sys.stdin.read().split()))' \
+            > /tmp/fit.dtb
+          fdtget /tmp/fit.dtb / compatible
+          test "$(fdtget /tmp/fit.dtb /soc/mmc@4021000 status)" = okay
+          fdtget -l /tmp/fit.dtb / | grep -q wifi-pwrseq
+          echo "  OK      mmc1 okay, wifi-pwrseq present"
+          done
+          MAN=$(ls "$OUT"/*orangepi-zero3.manifest | head -1)
+
+          echo "== rootfs =="
+          ROOT=$(find build_dir -maxdepth 2 -type d -name 'root-*' | head -1)
+          echo "rootfs: $ROOT"
+          chk() { if eval "$1"; then echo "  OK      $1"; else echo "  FAIL    $1"; FAILED=1; fi; }
+          FAILED=0
+          chk 'test -f "$ROOT/etc/apk/keys/$KEY_NAME.pem"'
+          chk 'grep -qx "$REPO_URL" "$ROOT/etc/apk/repositories.d/customfeeds.list"'
+          chk 'test -f "$ROOT/etc/uwe5622.options"'
+          chk 'test -x "$ROOT/usr/sbin/uwe5622-recover"'
+          chk 'test -f "$ROOT/etc/hotplug.d/platform/50-uwe5622-recover"'
+          chk 'grep -q "insmod sprdwl_ng disable_powersave=1" "$ROOT/lib/uwe5622.sh"'
+          chk 'grep -q "uwe_load_wifi" "$ROOT/etc/init.d/sprdwl-delay"'
+          chk 'grep -q "uwe_mmc_host" "$ROOT/usr/sbin/uwe5622-recover"'
+          chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
+          chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
+          chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
+          chk 'test -f "$ROOT/usr/share/rpcd/ucode/opiz3.uc"'
+          chk 'test -f "$ROOT/www/luci-static/resources/view/status/include/15_opiz3.js"'
+          chk 'test -f "$ROOT/www/luci-static/resources/view/opiz3/cpufreq.js"'
+          chk 'grep -q "governor .ondemand." "$ROOT/etc/config/opiz3"'
+          chk 'test -x "$ROOT/etc/init.d/opiz3" && ls "$ROOT"/etc/rc.d/S*opiz3'
+          chk '! grep -q "^luci-app-amneziawg 0" "$MAN"'
+          chk 'strings "$ROOT"/usr/lib/libiwinfo.so* | grep -q device/modalias'
+          grep -E '^(iwinfo|libiwinfo)' "$MAN"
+          test "$FAILED" = 0
+          echo "  OK      key, repo, driver files, iwinfo entry and modalias fallback"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz3-image-${{ env.RELEASE }}
+          if-no-files-found: error
+          path: |
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero3*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz2-image-${{ env.RELEASE }}
+          if-no-files-found: error
+          path: |
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2-*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2.*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
+
+      - name: Package ImageBuilder
+        run: |
+          # ready-to-use ImageBuilder: Wi-Fi DTB, our packages, key and repo
+          rm -rf ib/bin ib/tmp ib/dl
+          find ib/build_dir -maxdepth 2 -type d -name 'root-*' -exec rm -rf {} +
+          rm -rf ib/files
+          tar -C . -c ib --transform "s|^ib|$IB_NAME-opiz3|" | zstd -T0 -12 \
+            > "$IB_NAME-opiz3.tar.zst"
+          ls -lh "$IB_NAME-opiz3.tar.zst"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz3-imagebuilder-${{ env.RELEASE }}
+          path: ${{ env.IB_NAME }}-opiz3.tar.zst
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Signing key present?
+        id: key
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          if [ -n "$APK_SIGN_KEY" ]; then
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::APK_SIGN_KEY not set; packages were signed with a throw-away key, not publishing"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.key.outputs.ok
+        with:
+          path: art
+
+      - name: Site
+        if: steps.key.outputs.ok
+        run: |
+          D=site/$RELEASE/$TARGET-$SUBTARGET
+          mkdir -p "$D" site/keys
+          cp art/apk-repo/repo/* "$D/"
+          cp "art/apk-repo/$KEY_NAME.pem" site/keys/
+          touch site/.nojekyll
+          OWNER=${GITHUB_REPOSITORY%%/*}; REPO=${GITHUB_REPOSITORY#*/}
+          BASE="https://$OWNER.github.io/$REPO"
+          PKGS=$(ls "$D" | grep '\.apk$' | sed 's/\.apk$//' | tr '\n' ' ')
+          cat > site/index.html <<EOF
+          <!doctype html><meta charset="utf-8"><title>opiz3-wlan apk repo</title>
+          <h1>Orange Pi Zero 3: OpenWrt $RELEASE apk repository</h1>
+          <p>Images from this project already trust it. On another OpenWrt $RELEASE sunxi/cortexa53 system:</p>
+          <pre>wget -O /etc/apk/keys/$KEY_NAME.pem $BASE/keys/$KEY_NAME.pem
+          echo $BASE/$RELEASE/$TARGET-$SUBTARGET/packages.adb &gt;&gt; /etc/apk/repositories.d/customfeeds.list
+          apk update</pre>
+          <p>Packages: $PKGS</p>
+          EOF
+          find site -type f | sort
+
+      - name: Push gh-pages
+        if: steps.key.outputs.ok
+        run: |
+          cd site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "apk repo for $RELEASE from ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY.git" gh-pages
+
+      - name: Rolling release
+        if: steps.key.outputs.ok
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=opiz3-$RELEASE-latest
+          OWNER=${GITHUB_REPOSITORY%%/*}; REPO=${GITHUB_REPOSITORY#*/}
+          cat > notes.md <<EOF
+          Official OpenWrt $RELEASE kernel: every kmod from downloads.openwrt.org installs with apk.
+          Extra packages (UWE5622 driver, board status/CPU frequency panel, AmneziaWG, Footstrap, iwinfo) come from https://$OWNER.github.io/$REPO/ ,
+          which the image already trusts.
+
+          Images:
+          - Orange Pi Zero 3 (xunlong_orangepi-zero3): tested on hardware.
+          - Orange Pi Zero 2 (xunlong_orangepi-zero2): UNTESTED, testers wanted. Same Wi-Fi module and
+            wiring as the Zero 3 (shared device tree include, PG18 reset); please report whether
+            phy0 appears and an AP starts (scripts/collect-debug.sh).
+
+          The ImageBuilder archive already carries the Wi-Fi DTBs of both boards, these packages,
+          the signing key and the repository:
+
+              make image PROFILE=xunlong_orangepi-zero3 PACKAGES="kmod-uwe5622 uwe5622-firmware wpad-basic-mbedtls luci ..."
+
+          Built from ${GITHUB_SHA}.
+          EOF
+          FILES=$(ls art/opiz3-image-$RELEASE/* art/opiz2-image-$RELEASE/*.gz \
+            art/opiz2-image-$RELEASE/*.manifest art/opiz3-imagebuilder-$RELEASE/*)
+          TITLE="Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}"
+          R="$GITHUB_REPOSITORY"
+          dup=$(for f in $FILES; do basename "$f"; done | sort | uniq -d)
+          [ -z "$dup" ] || { echo "duplicate asset names: $dup"; exit 1; }
+
+          # Update the release in place instead of delete + create: a
+          # create right after deleting the same tag can fail, and then
+          # there is no release at all until the next run.
+          if gh release view "$TAG" -R "$R" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$R/git/refs/tags/$TAG" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release edit "$TAG" -R "$R" --prerelease --target "$GITHUB_SHA" \
+              --title "$TITLE" --notes-file notes.md
+            gh release upload "$TAG" -R "$R" --clobber $FILES
+            # drop assets of earlier builds that this one does not have
+            new=$(for f in $FILES; do basename "$f"; done)
+            gh release view "$TAG" -R "$R" --json assets -q '.assets[].name' |
+              while read -r a; do
+                echo "$new" | grep -qxF "$a" || gh release delete-asset "$TAG" "$a" -R "$R" -y
+              done
+          else
+            for i in 1 2 3; do
+              gh release create "$TAG" -R "$R" --prerelease --target "$GITHUB_SHA" \
+                --title "$TITLE" --notes-file notes.md $FILES && break
+              [ "$i" = 3 ] && exit 1
+              echo "release create failed, retrying in 20 s"; sleep 20
+            done
+          fi
+          gh release view "$TAG" -R "$R" --json assets -q '.assets[].name'

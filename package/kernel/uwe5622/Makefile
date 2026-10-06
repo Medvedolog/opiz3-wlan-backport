@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=uwe5622
+PKG_VERSION:=2026.09.13
+PKG_RELEASE:=12
+
+PKG_SOURCE_VERSION:=cc2835a3f935d5297e03cdce464c1785381a7b4d
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_VERSION).tar.gz
+PKG_SOURCE_URL:=https://codeload.github.com/armbian/uwe5622/tar.gz/$(PKG_SOURCE_VERSION)?
+PKG_HASH:=8ca548db6885ccdbaebe4f1f0089dda485377b36ea7ce20fb3e70bfdcfd935d5
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_SOURCE_VERSION)
+
+PKG_LICENSE:=GPL-2.0
+PKG_LICENSE_FILES:=README.md
+PKG_MAINTAINER:=jukeboge <jukeboge@gmail.com>
+PKG_BUILD_PARALLEL:=1
+PKG_EXTMOD_SUBDIRS:=unisocwcn unisocwifi
+
+STAMP_CONFIGURED_DEPENDS := $(STAGING_DIR)/usr/include/mac80211-backport/backport/autoconf.h
+
+include $(INCLUDE_DIR)/kernel.mk
+include $(INCLUDE_DIR)/package.mk
+
+define KernelPackage/uwe5622
+  SUBMENU:=Wireless Drivers
+  TITLE:=UNISOC UWE5622 (AW859A) SDIO wireless driver
+  URL:=https://github.com/armbian/uwe5622
+  DEPENDS:=@TARGET_sunxi_cortexa53 +kmod-cfg80211 +uwe5622-firmware
+  MENU:=1
+  FILES:= \
+	$(PKG_BUILD_DIR)/unisocwcn/uwe5622_bsp_sdio.ko \
+	$(PKG_BUILD_DIR)/unisocwifi/sprdwl_ng.ko
+  # TANPA AutoLoad. kmodloader memuat modules.d pada S10boot, jauh sebelum
+  # S20network; di Orange Pi Zero 3 probe SDIO uwe5622_bsp_sdio menggantung di
+  # sana dan boot berhenti total -- board menyala, link ethernet hidup, nol
+  # frame terkirim, tidak bisa dijangkau sama sekali. Kedua modul kini dimuat
+  # oleh init sprdwl-delay setelah jaringan naik, sehingga kegagalan driver
+  # hanya mematikan Wi-Fi, bukan seluruh gateway.
+endef
+
+define KernelPackage/uwe5622/config
+	config UWE5622_LEAN
+		bool "Build lean OpenWrt WLAN profile"
+		default n
+		help
+		  Exclude vendor features not required for normal OpenWrt AP/STA
+		  operation (currently IBSS, NAN and RTT). Intended for controlled
+		  A/B testing before any upstream default is changed.
+endef
+
+define KernelPackage/uwe5622/description
+  Community-maintained SDIO Wi-Fi driver for the UNISOC UWE5622 chipset
+  used by the AW859A module on the Orange Pi 3 LTS.
+endef
+
+define KernelPackage/uwe5622/conffiles
+/etc/uwe5622.options
+endef
+
+define KernelPackage/uwe5622/install
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/sprdwl-delay $(1)/etc/init.d/sprdwl-delay
+	$(INSTALL_DATA) ./files/uwe5622.options $(1)/etc/uwe5622.options
+	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_BIN) ./files/uwe5622-clamp-htmode $(1)/usr/sbin/uwe5622-clamp-htmode
+	$(INSTALL_BIN) ./files/uwe5622-recover $(1)/usr/sbin/uwe5622-recover
+	$(INSTALL_BIN) ./files/uwe5622-iwinfo-name $(1)/usr/sbin/uwe5622-iwinfo-name
+	$(INSTALL_DIR) $(1)/lib
+	$(INSTALL_DATA) ./files/uwe5622.sh $(1)/lib/uwe5622.sh
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/platform
+	$(INSTALL_DATA) ./files/50-uwe5622-recover $(1)/etc/hotplug.d/platform/50-uwe5622-recover
+endef
+
+define Build/Configure
+endef
+
+NOSTDINC_FLAGS := \
+	$(KERNEL_NOSTDINC_FLAGS) \
+	-I$(PKG_BUILD_DIR)/unisocwcn/include \
+	-I$(STAGING_DIR)/usr/include/mac80211-backport \
+	-I$(STAGING_DIR)/usr/include/mac80211-backport/uapi \
+	-I$(STAGING_DIR)/usr/include/mac80211 \
+	-I$(STAGING_DIR)/usr/include/mac80211/uapi \
+	-include backport/autoconf.h \
+	-include backport/backport.h \
+	-DOPENWRT_CFG80211_BACKPORT
+
+define Build/Compile
+	+$(KERNEL_MAKE) $(PKG_JOBS) \
+		M=$(PKG_BUILD_DIR)/unisocwcn \
+		CONFIG_AW_WIFI_DEVICE_UWE5622=y \
+		CONFIG_AW_BIND_VERIFY=y \
+		UNISOC_FW_PATH_CONFIG=\"/lib/firmware/uwe5622/\" \
+		modules
+	+$(KERNEL_MAKE) $(PKG_JOBS) \
+		M=$(PKG_BUILD_DIR)/unisocwifi \
+		CONFIG_WLAN_UWE5622=m \
+		OPENWRT_UWE5622_LEAN=$(if $(CONFIG_UWE5622_LEAN),y,n) \
+		UNISOC_BSP_INCLUDE=$(PKG_BUILD_DIR)/unisocwcn/include \
+		UNISOC_WIFI_CUS_CONFIG=/lib/firmware/uwe5622 \
+		NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
+		KBUILD_EXTRA_SYMBOLS="$(KERNEL_BUILD_DIR)/symvers/mac80211.symvers $(PKG_BUILD_DIR)/unisocwcn/Module.symvers" \
+		modules
+endef
+
+$(eval $(call KernelPackage,uwe5622))

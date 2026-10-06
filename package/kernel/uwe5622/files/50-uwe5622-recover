@@ -1,0 +1,5 @@
+# sprdwl_ng emits a "change" uevent on unisoc_wifi after a CP assert
+[ "$ACTION" = change ] || exit 0
+[ "$DRIVER" = unisoc_wifi ] || [ "${DEVPATH##*/}" = unisoc_wifi ] || exit 0
+# do the work outside the hotplug context
+( /usr/sbin/uwe5622-recover </dev/null >/dev/null 2>&1 & )

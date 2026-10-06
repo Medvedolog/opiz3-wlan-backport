@@ -1,0 +1,84 @@
+Subject: [PATCH] unisocwifi: optional OpenWrt lean profile
+
+Exclude vendor features which normal OpenWrt AP/STA operation does not use
+(IBSS, NAN, RTT and the NPI engineering-test interface) when the package is
+built with OPENWRT_UWE5622_LEAN=y.
+
+Both the feature defines and the object files are made conditional, so the
+lean module really drops the code instead of only compiling it without its
+callers. The default build is unchanged.
+
+---
+diff --git a/unisocwifi/Makefile b/unisocwifi/Makefile
+index 966e74e..5dada81 100644
+--- a/unisocwifi/Makefile
++++ b/unisocwifi/Makefile
+@@ -17,9 +17,13 @@ ccflags-y += -DCUSTOMIZE_WIFI_MAC_FILE=\"$(UNISOC_WIFI_MAC_FILE)\"
+ endif
+ 
+ ####add cflag######
++ifneq ($(OPENWRT_UWE5622_LEAN),y)
+ ccflags-y += -DIBSS_SUPPORT -DIBSS_RSN_SUPPORT
+ ccflags-y += -DNAN_SUPPORT
+ ccflags-y += -DRTT_SUPPORT
++else
++ccflags-y += -DOPENWRT_UWE5622_LEAN
++endif
+ ccflags-y += -DACS_SUPPORT -DRX_HW_CSUM
+ ccflags-y += -DWMMAC_WFA_CERTIFICATION
+ ccflags-y += -DCOMPAT_SAMPILE_CODE
+@@ -37,15 +41,18 @@ endif
+ ccflags-$(CONFIG_UNISOC_WIFI_PS) += -DUNISOC_WIFI_PS
+ 
+ #######add .o file#####
+-sprdwl_ng-objs += main.o cfg80211.o txrx.o cmdevt.o npi.o msg.o work.o vendor.o \
++sprdwl_ng-objs += main.o cfg80211.o txrx.o cmdevt.o msg.o work.o vendor.o \
+ 				  tcp_ack.o mm.o reorder.o wl_core.o tx_msg.o rx_msg.o \
+ 				  wl_intf.o qos.o dbg_ini_util.o reg_domain.o
+ sprdwl_ng-objs += defrag.o
++ifneq ($(OPENWRT_UWE5622_LEAN),y)
++sprdwl_ng-objs += npi.o
+ sprdwl_ng-objs += ibss.o
+ sprdwl_ng-objs += nan.o
++sprdwl_ng-objs += rtt.o
++endif
+ sprdwl_ng-objs += tracer.o
+ sprdwl_ng-objs += rf_marlin3.o
+-sprdwl_ng-objs += rtt.o
+ sprdwl_ng-objs += api_version.o
+ sprdwl_ng-objs += rnd_mac_addr.o
+ sprdwl_ng-objs += debug.o
+diff --git a/unisocwifi/main.c b/unisocwifi/main.c
+index a052dfd..d0e229c 100644
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -16,7 +16,9 @@
+  */
+ 
+ #include "sprdwl.h"
++#ifndef OPENWRT_UWE5622_LEAN
+ #include "npi.h"
++#endif
+ #include "cfg80211.h"
+ #include "cmdevt.h"
+ #include "txrx.h"
+@@ -1624,7 +1626,9 @@ int sprdwl_core_init(struct device *dev, struct sprdwl_priv *priv)
+ #endif
+ 
+ 	qos_enable(1);
++#ifndef OPENWRT_UWE5622_LEAN
+ 	sprdwl_init_npi();
++#endif
+ 	ret = register_inetaddr_notifier(&sprdwl_inetaddr_cb);
+ 	if (ret)
+ 		wl_err("%s failed to register inetaddr notifier(%d)!\n",
+@@ -1655,7 +1659,9 @@ int sprdwl_core_deinit(struct sprdwl_priv *priv)
+ 	unregister_inetaddr_notifier(&sprdwl_inetaddr_cb);
+ 	if (priv->fw_capa & SPRDWL_CAPA_NS_OFFLOAD)
+ 		unregister_inet6addr_notifier(&sprdwl_inet6addr_cb);
++#ifndef OPENWRT_UWE5622_LEAN
+ 	sprdwl_deinit_npi();
++#endif
+ 	qos_enable(0);
+ 	sprdwl_del_all_ifaces(priv);
+ 	sprdwl_vendor_deinit(priv->wiphy);

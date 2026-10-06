@@ -1,0 +1,103 @@
+Subject: [PATCH] unisocwifi: log channel IEs of the START_AP frame
+
+Diagnostics for 5 GHz AP bring-up. Read-only: nothing that is sent to the
+firmware changes.
+
+Reverse engineering of the firmware START_AP handler (wcnmodem.bin
+MARLIN3_19B_W21.05.3, 0x1431ec) shows that the firmware derives the AP
+channel from the beacon IEs in the START_AP frame. The in-image part looks
+up DS Parameter Set (EID 3) and, for a 2.4 GHz DS channel, hides VHT
+Operation; the ROM part (0x209ac4) parses the rest. There is no separate
+width or center-channel input: WIFI_CMD_SET_CHANNEL carries only a primary
+channel number.
+
+hostapd omits DS Parameter Set on 5 GHz. To establish what the firmware is
+actually given, log, from the exact frame passed to sprdwl_start_ap():
+
+  - cfg80211 chandef: primary frequency, width, center_freq1
+  - DS Parameter Set channel (-1 if absent)
+  - HT Operation primary channel and secondary channel offset
+  - VHT Operation channel width and center segments 0/1
+
+and the WIFI_CMD_START_AP result.
+
+The frame starts with the 802.11 header; the vendor layout adds a hidden-SSID
+flag byte inside the SSID IE, whose length includes it, so a normal IE walk
+from u.beacon.variable is correct. This matches the firmware, which starts
+parsing 0x26 bytes after the length field (2 + 36).
+
+Messages use L_ERR; with the default build they need
+  echo "debug_level=1" > /sys/kernel/debug/sprdwl_debug/log_level
+before "wifi up".
+
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index f6876ac..00ea49e 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -943,6 +943,54 @@ int sprdwl_change_beacon(struct sprdwl_vif *vif,
+ 	return ret;
+ }
+ 
++/* Log the channel information the firmware will find in the START_AP frame.
++ *
++ * The firmware START_AP handler derives the AP channel from the beacon IEs
++ * (it looks up DS Parameter Set, and the ROM part parses the rest); there is
++ * no separate width/center input. hostapd omits DS Parameter Set on 5 GHz, so
++ * log exactly what the firmware will see: DS channel, HT Operation primary
++ * and secondary offset, VHT Operation width and center segments, next to the
++ * cfg80211 chandef. Read-only diagnostics; the frame is not modified.
++ */
++static void sprdwl_log_start_ap_ies(struct net_device *ndev,
++				    struct cfg80211_ap_settings *settings,
++				    const u8 *frame, u16 frame_len)
++{
++	const size_t ies_off = offsetof(struct ieee80211_mgmt, u.beacon.variable);
++	const u8 *ies, *ds, *ht, *vht;
++	int ds_ch = -1, ht_pri = -1, ht_sec = -1;
++	int vht_w = -1, vht_cf0 = -1, vht_cf1 = -1;
++	size_t ies_len;
++
++	if (frame_len <= ies_off)
++		return;
++	ies = frame + ies_off;
++	ies_len = frame_len - ies_off;
++
++	ds = cfg80211_find_ie(WLAN_EID_DS_PARAMS, ies, ies_len);
++	if (ds && ds[1] >= 1)
++		ds_ch = ds[2];
++
++	ht = cfg80211_find_ie(WLAN_EID_HT_OPERATION, ies, ies_len);
++	if (ht && ht[1] >= 2) {
++		ht_pri = ht[2];
++		ht_sec = ht[3] & 0x3;
++	}
++
++	vht = cfg80211_find_ie(WLAN_EID_VHT_OPERATION, ies, ies_len);
++	if (vht && vht[1] >= 3) {
++		vht_w = vht[2];
++		vht_cf0 = vht[3];
++		vht_cf1 = vht[4];
++	}
++
++	wl_ndev_log(L_ERR, ndev,
++		    "START_AP chandef freq=%u width=%d cf1=%u | ds=%d ht_pri=%d ht_sec=%d vht_w=%d vht_cf0=%d vht_cf1=%d frame_len=%u\n",
++		    settings->chandef.chan ? settings->chandef.chan->center_freq : 0,
++		    settings->chandef.width, settings->chandef.center_freq1,
++		    ds_ch, ht_pri, ht_sec, vht_w, vht_cf0, vht_cf1, frame_len);
++}
++
+ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
+ 				    struct net_device *ndev,
+ 				    struct cfg80211_ap_settings *settings)
+@@ -1077,8 +1125,10 @@ static int sprdwl_cfg80211_start_ap(struct wiphy *wiphy,
+ 			(settings->hidden_ssid != 0 ? settings->ssid_len : 0),
+ 		       tail, tail_len);
+ 
++	sprdwl_log_start_ap_ies(ndev, settings, (const u8 *)mgmt, mgmt_len);
+ 	ret = sprdwl_start_ap(vif->priv, vif->ctx_id, (unsigned char *)mgmt,
+ 			      mgmt_len);
++	wl_ndev_log(L_ERR, ndev, "START_AP ret=%d\n", ret);
+ 	kfree(mgmt);
+ 
+ #ifdef DFS_MASTER

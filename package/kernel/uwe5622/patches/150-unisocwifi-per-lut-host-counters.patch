@@ -1,0 +1,225 @@
+Subject: [PATCH] unisocwifi: host-side per-LUT traffic counters
+
+The firmware exports no per-peer traffic statistics in AP mode, but the
+host datapath knows the station LUT of every data frame:
+
+- RX: every MSDU passed to sprdwl_rx_skb_process() carries an rx_msdu_desc
+  with ctx_id, sta_lut_valid/sta_lut_index and msdu_len. It is read before
+  skb_reserve() moves skb->data past it.
+- TX: sprdwl_tx_msg_func() resolves dscr->sta_lut_index for every queued
+  data frame, and dscr->pkt_len holds its 802.3 length.
+
+Add atomic64 counters to each peer_entry:
+
+  rx_packets, rx_bytes                    MSDUs the firmware delivered for
+                                          the LUT (802.3 length)
+  tx_enqueued_packets, tx_enqueued_bytes  frames queued towards the LUT;
+                                          they may still be dropped further
+                                          down, so these are not transmitted
+                                          or acknowledged frames
+
+RX frames are attributed only when the LUT entry belongs to the same
+context as the descriptor. Frames without a valid LUT and context
+mismatches are counted separately, so the LUT mapping can be checked on
+hardware. Counters reset when a LUT is added or deleted (UPD keeps them,
+since it is the same peer). TX is accounted before the message is queued,
+because once queued the TX thread may send and free the skb holding the
+descriptor.
+
+The counters are exposed only in /sys/kernel/debug/sprdwl_debug/peer_stats
+for now. They are not reported through station_info until their semantics
+have been validated on hardware.
+
+Also reject STA_LUT events whose index is outside peer_entry[MAX_LUT_NUM];
+the index comes from firmware and was used unchecked.
+
+---
+diff --git a/unisocwifi/tx_msg.c b/unisocwifi/tx_msg.c
+index 02adef8..7bb3e8b 100644
+--- a/unisocwifi/tx_msg.c
++++ b/unisocwifi/tx_msg.c
+@@ -1313,6 +1313,14 @@ int sprdwl_tx_msg_func(void *pdev, struct sprdwl_msg_buf *msg)
+ 			(qos_index == SPRDWL_AC_BK && data_list->l_num <= BK_TOTAL_QUOTA)
+ 			) {*/
+ 			msg->data_list = data_list;
++			/* account before queueing: once queued, the TX thread
++			 * may send and free the skb that holds dscr
++			 */
++			if (dscr->sta_lut_index < MAX_LUT_NUM) {
++				atomic64_inc(&peer_entry->tx_enqueued_packets);
++				atomic64_add(le16_to_cpu(dscr->pkt_len),
++					     &peer_entry->tx_enqueued_bytes);
++			}
+ 			sprdwl_queue_data_msg_buf(msg);
+ 			atomic_inc(&tx_msg->tx_list[msg->mode]->mode_list_num);
+ 		/*} else {
+diff --git a/unisocwifi/txrx.c b/unisocwifi/txrx.c
+index b0a24a3..f39d3f1 100644
+--- a/unisocwifi/txrx.c
++++ b/unisocwifi/txrx.c
+@@ -148,6 +148,9 @@ void sprdwl_rx_skb_process(struct sprdwl_priv *priv, struct sk_buff *skb)
+ 	struct sk_buff *tx_skb = NULL;
+ 	struct sprdwl_intf *intf;
+ 	struct ethhdr *eth;
++	bool lut_valid;
++	u8 lut, ctx_id;
++	u16 msdu_len;
+ 
+ 	intf = (struct sprdwl_intf *)priv->hw_priv;
+ 
+@@ -177,6 +180,13 @@ void sprdwl_rx_skb_process(struct sprdwl_priv *priv, struct sk_buff *skb)
+ 	}
+ 
+ 	ndev = vif->ndev;
++	/* the descriptor sits in front of the frame: read it before
++	 * skb_reserve() moves skb->data past it
++	 */
++	lut_valid = msdu_desc->sta_lut_valid;
++	lut = msdu_desc->sta_lut_index;
++	ctx_id = msdu_desc->ctx_id;
++	msdu_len = msdu_desc->msdu_len;
+ 	skb_reserve(skb, msdu_desc->msdu_offset);
+ 	skb_put(skb, msdu_desc->msdu_len);
+ 
+@@ -189,6 +199,19 @@ void sprdwl_rx_skb_process(struct sprdwl_priv *priv, struct sk_buff *skb)
+ 			goto err;
+ 		}
+ 
++	if (lut_valid && lut < MAX_LUT_NUM) {
++		struct sprdwl_peer_entry *peer = &intf->peer_entry[lut];
++
++		if (peer->ctx_id == ctx_id) {
++			atomic64_inc(&peer->rx_packets);
++			atomic64_add(msdu_len, &peer->rx_bytes);
++		} else {
++			atomic_long_inc(&intf->rx_lut_ctx_mismatch);
++		}
++	} else {
++		atomic_long_inc(&intf->rx_lut_invalid);
++	}
++
+ 	if (intf->tdls_flow_count_enable == 1)
+ 		count_tdls_flow(vif,
+ 				skb->data + ETH_ALEN,
+diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
+index 60ae33b..76dce8b 100644
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -489,6 +489,48 @@ static const struct file_operations tx_stats_fops = {
+ 	.release = single_release,
+ };
+ 
++/* Host-side per-LUT counters. Unused LUTs (ctx_id 0xff) are skipped. */
++static int peer_stats_show(struct seq_file *s, void *p)
++{
++	struct sprdwl_intf *intf = s->private;
++	struct sprdwl_peer_entry *peer;
++	int i;
++
++	seq_printf(s, "rx_lut_invalid: %ld\n",
++		   atomic_long_read(&intf->rx_lut_invalid));
++	seq_printf(s, "rx_lut_ctx_mismatch: %ld\n",
++		   atomic_long_read(&intf->rx_lut_ctx_mismatch));
++	seq_puts(s, "lut ctx mac               ht vht rx_packets rx_bytes "
++		 "tx_enqueued_packets tx_enqueued_bytes\n");
++	for (i = 0; i < MAX_LUT_NUM; i++) {
++		peer = &intf->peer_entry[i];
++		if (peer->ctx_id == 0xff)
++			continue;
++		seq_printf(s, "%3d %3u %pM %2u %3u %lld %lld %lld %lld\n",
++			   i, peer->ctx_id, peer->tx.da,
++			   peer->ht_enable, peer->vht_enable,
++			   (long long)atomic64_read(&peer->rx_packets),
++			   (long long)atomic64_read(&peer->rx_bytes),
++			   (long long)atomic64_read(&peer->tx_enqueued_packets),
++			   (long long)atomic64_read(&peer->tx_enqueued_bytes));
++	}
++
++	return 0;
++}
++
++static int peer_stats_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, peer_stats_show, inode->i_private);
++}
++
++static const struct file_operations peer_stats_fops = {
++	.owner = THIS_MODULE,
++	.open = peer_stats_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
+ static void sprdwl_debugfs(void *spdev, struct dentry *dir)
+ {
+ 	struct sprdwl_intf *intf;
+@@ -522,6 +564,8 @@ static void sprdwl_debugfs_init(struct sprdwl_intf *intf)
+ 
+ 	debugfs_create_file("tx_stats", S_IRUSR, sprdwl_debug_root, intf,
+ 			    &tx_stats_fops);
++	debugfs_create_file("peer_stats", S_IRUSR, sprdwl_debug_root, intf,
++			    &peer_stats_fops);
+ }
+ 
+ static void sprdwl_debugfs_deinit(void)
+diff --git a/unisocwifi/wl_core.h b/unisocwifi/wl_core.h
+index a5ce589..ab3537b 100644
+--- a/unisocwifi/wl_core.h
++++ b/unisocwifi/wl_core.h
+@@ -78,6 +78,16 @@ struct sprdwl_peer_entry {
+ 	u8 vowifi_enabled;
+ 	u8 vowifi_pkt_cnt;
+ 	struct timespec time[6 + 1];
++
++	/* Host-side per-LUT traffic counters, reset when the LUT is added or
++	 * deleted. RX counts 802.3 MSDUs the firmware delivered for this LUT.
++	 * TX counts frames queued towards this LUT; they can still be dropped
++	 * further down, so these are not transmitted/acknowledged frames.
++	 */
++	atomic64_t rx_packets;
++	atomic64_t rx_bytes;
++	atomic64_t tx_enqueued_packets;
++	atomic64_t tx_enqueued_bytes;
+ };
+ 
+ #if defined(MORE_DEBUG)
+@@ -156,6 +166,9 @@ struct sprdwl_intf {
+ 
+ 	struct sprdwl_peer_entry peer_entry[MAX_LUT_NUM];
+ 	unsigned long tx_num[MAX_LUT_NUM];
++	/* RX MSDUs not attributed to a LUT, see debugfs peer_stats */
++	atomic_long_t rx_lut_invalid;
++	atomic_long_t rx_lut_ctx_mismatch;
+ 	unsigned char *skb_da;
+ #if defined FPGA_LOOPBACK_TEST
+ 	int loopback_n;
+diff --git a/unisocwifi/wl_intf.c b/unisocwifi/wl_intf.c
+index e94e2be..a4dd37e 100644
+--- a/unisocwifi/wl_intf.c
++++ b/unisocwifi/wl_intf.c
+@@ -1487,6 +1487,10 @@ void sprdwl_event_sta_lut(struct sprdwl_vif *vif, u8 *data, u16 len)
+ 	}
+ 
+ 	i = sta_lut->sta_lut_index;
++	if (i >= MAX_LUT_NUM) {
++		wl_err("%s, invalid lut index %u\n", __func__, i);
++		return;
++	}
+ 
+ 	wl_debug("ctx_id:%d,action:%d,lut:%d\n", sta_lut->ctx_id,
+ 		sta_lut->action, sta_lut->sta_lut_index);
+@@ -1510,6 +1514,13 @@ void sprdwl_event_sta_lut(struct sprdwl_vif *vif, u8 *data, u16 len)
+ 		sprdwl_dis_flush_txlist(intf, i);
+ 		fallthrough;
+ 	case ADD_LUT_INDEX:
++		if (sta_lut->action == ADD_LUT_INDEX) {
++			/* a new peer: start its traffic counters from zero */
++			atomic64_set(&intf->peer_entry[i].rx_packets, 0);
++			atomic64_set(&intf->peer_entry[i].rx_bytes, 0);
++			atomic64_set(&intf->peer_entry[i].tx_enqueued_packets, 0);
++			atomic64_set(&intf->peer_entry[i].tx_enqueued_bytes, 0);
++		}
+ 		intf->peer_entry[i].lut_index = i;
+ 		intf->peer_entry[i].ctx_id = sta_lut->ctx_id;
+ 		intf->peer_entry[i].ht_enable = sta_lut->is_ht_enable;

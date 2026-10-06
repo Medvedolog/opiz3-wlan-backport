@@ -1,0 +1,13 @@
+{
+	"admin/system/opiz3-cpufreq": {
+		"title": "CPU frequency",
+		"order": 65,
+		"action": {
+			"type": "view",
+			"path": "opiz3/cpufreq"
+		},
+		"depends": {
+			"acl": [ "luci-app-opiz3-status" ]
+		}
+	}
+}

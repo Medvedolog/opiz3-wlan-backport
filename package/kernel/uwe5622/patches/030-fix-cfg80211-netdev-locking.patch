@@ -1,0 +1,162 @@
+From: jukeboge <jukeboge@gmail.com>
+Subject: [PATCH] uwe5622: use cfg80211 netdev helpers in interface callbacks
+
+cfg80211 add_virtual_intf and del_virtual_intf callbacks run while the
+wireless core already holds the network device lock. Calling the generic
+register_netdevice() and unregister_netdevice() helpers from that context
+causes a recursive lock and prevents AP interfaces from being created.
+
+Use the cfg80211-aware helpers in callback context while retaining the
+generic helpers for the driver's core initialization and teardown paths.
+
+Signed-off-by: jukeboge <jukeboge@gmail.com>
+---
+--- a/unisocwifi/sprdwl.h
++++ b/unisocwifi/sprdwl.h
+@@ -402,8 +402,10 @@ void sprdwl_net_flowcontrl(struct sprdwl
+ 
+ struct wireless_dev *sprdwl_add_iface(struct sprdwl_priv *priv,
+ 				      const char *name,
+-				      enum nl80211_iftype type, u8 *addr);
+-int sprdwl_del_iface(struct sprdwl_priv *priv, struct sprdwl_vif *vif);
++				      enum nl80211_iftype type, u8 *addr,
++				      bool cfg80211_locked);
++int sprdwl_del_iface(struct sprdwl_priv *priv, struct sprdwl_vif *vif,
++		     bool cfg80211_locked);
+ struct sprdwl_priv *sprdwl_core_create(enum sprdwl_hw_type type,
+ 				       struct sprdwl_if_ops *ops);
+ void sprdwl_core_free(struct sprdwl_priv *priv);
+--- a/unisocwifi/main.c
++++ b/unisocwifi/main.c
+@@ -1380,6 +1380,7 @@ static struct sprdwl_vif *sprdwl_registe
+ 						 const char *name,
+ 						 enum nl80211_iftype type,
+-						 u8 *addr)
++						 u8 *addr,
++						 bool cfg80211_locked)
+ {
+ 	struct net_device *ndev;
+ 	struct wireless_dev *wdev;
+@@ -1451,7 +1452,10 @@ static struct sprdwl_vif *sprdwl_registe
+ #endif
+ 
+ 	/* register new Ethernet interface */
+-	ret = register_netdevice(ndev);
++	if (cfg80211_locked)
++		ret = cfg80211_register_netdevice(ndev);
++	else
++		ret = register_netdevice(ndev);
+ 	if (ret) {
+ 		wl_ndev_log(L_ERR, ndev, "failed to regitster netdev(%d)!\n", ret);
+ 		goto err;
+@@ -1466,19 +1470,24 @@ err:
+ 	return ERR_PTR(ret);
+ }
+ 
+-static void sprdwl_unregister_netdev(struct sprdwl_vif *vif)
++static void sprdwl_unregister_netdev(struct sprdwl_vif *vif,
++				     bool cfg80211_locked)
+ {
+ 	wl_info("iface '%s' deleted\n", vif->ndev->name);
+ 
+ 	if (vif->priv->fw_capa & SPRDWL_CAPA_MC_FILTER)
+ 		kfree(vif->mc_filter);
+ 	sprdwl_deinit_vif(vif);
+-	unregister_netdevice(vif->ndev);
++	if (cfg80211_locked)
++		cfg80211_unregister_netdevice(vif->ndev);
++	else
++		unregister_netdevice(vif->ndev);
+ }
+ 
+ struct wireless_dev *sprdwl_add_iface(struct sprdwl_priv *priv,
+ 				      const char *name,
+-				      enum nl80211_iftype type, u8 *addr)
++				      enum nl80211_iftype type, u8 *addr,
++				      bool cfg80211_locked)
+ {
+ 	struct sprdwl_vif *vif;
+ 
+@@ -1486,9 +1495,11 @@ struct wireless_dev *sprdwl_add_iface(st
+ 	if (type == NL80211_IFTYPE_P2P_DEVICE)
+ 		vif = sprdwl_register_wdev(priv, name, type, addr);
+ 	else
+-		vif = sprdwl_register_netdev(priv, name, type, addr);
++		vif = sprdwl_register_netdev(priv, name, type, addr,
++					     cfg80211_locked);
+ #else
+-	vif = sprdwl_register_netdev(priv, name, type, addr);
++	vif = sprdwl_register_netdev(priv, name, type, addr,
++				     cfg80211_locked);
+ #endif
+ 
+ 	if (IS_ERR(vif)) {
+@@ -1510,15 +1521,16 @@ struct wireless_dev *sprdwl_add_iface(st
+ 	return &vif->wdev;
+ }
+ 
+-int sprdwl_del_iface(struct sprdwl_priv *priv, struct sprdwl_vif *vif)
++int sprdwl_del_iface(struct sprdwl_priv *priv, struct sprdwl_vif *vif,
++		     bool cfg80211_locked)
+ {
+ #ifdef DFS_MASTER
+ 	sprdwl_deinit_dfs_master(vif);
+ #endif
+ 	if (!vif->ndev)
+ 		sprdwl_unregister_wdev(vif);
+ 	else
+-		sprdwl_unregister_netdev(vif);
++		sprdwl_unregister_netdev(vif, cfg80211_locked);
+ 
+ 	return 0;
+ }
+@@ -1533,7 +1545,7 @@ next_intf:
+ 		list_del(&vif->vif_node);
+ 		spin_unlock_bh(&priv->list_lock);
+ 		rtnl_lock();
+-		sprdwl_del_iface(priv, vif);
++		sprdwl_del_iface(priv, vif, false);
+ 		rtnl_unlock();
+ 		goto next_intf;
+ 	}
+@@ -1583,7 +1595,8 @@ int sprdwl_core_init(struct device *dev,
+ 	if (is_valid_ether_addr(priv->mac_addr))
+ 		efuse_mac_addr = priv->mac_addr;
+ 	rtnl_lock();
+-	wdev = sprdwl_add_iface(priv, "wlan%d", NL80211_IFTYPE_STATION, NULL);
++	wdev = sprdwl_add_iface(priv, "wlan%d", NL80211_IFTYPE_STATION, NULL,
++				false);
+ 	rtnl_unlock();
+ 	if (IS_ERR(wdev)) {
+ 		wiphy_unregister(wiphy);
+@@ -1593,7 +1606,8 @@ int sprdwl_core_init(struct device *dev,
+ 
+ #ifdef CONFIG_P2P_INTF
+ 	rtnl_lock();
+-	wdev = sprdwl_add_iface(priv, "p2p%d", NL80211_IFTYPE_P2P_DEVICE, NULL);
++	wdev = sprdwl_add_iface(priv, "p2p%d", NL80211_IFTYPE_P2P_DEVICE, NULL,
++				false);
+ 	rtnl_unlock();
+ 	if (IS_ERR(wdev)) {
+ 		wiphy_unregister(wiphy);
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -559,7 +559,8 @@ static struct wireless_dev *sprdwl_cfg80
+ 		}
+ 	}
+ 
+-	return sprdwl_add_iface(priv, name, iftype, params->macaddr);
++	return sprdwl_add_iface(priv, name, iftype, params->macaddr,
++				true);
+ }
+ #endif
+ 
+@@ -581,7 +582,7 @@ static int sprdwl_cfg80211_del_iface(str
+ 	spin_unlock_bh(&priv->list_lock);
+ 
+ 	if (vif != NULL) {
+-		sprdwl_del_iface(priv, vif);
++		sprdwl_del_iface(priv, vif, true);
+ 
+ 		spin_lock_bh(&priv->list_lock);
+ 		list_del(&vif->vif_node);

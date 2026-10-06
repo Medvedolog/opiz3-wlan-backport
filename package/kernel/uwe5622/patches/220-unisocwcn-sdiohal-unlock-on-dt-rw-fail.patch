@@ -1,0 +1,59 @@
+Subject: [PATCH] unisocwcn: drop the card reference on the dt_rw_fail early return
+
+sdiohal_dt_write/read and the 32-bit variants take a card reference with
+sdiohal_card_lock() (atomic xmit_cnt) and then, on sunxi, return -1 if a
+previous direct transfer failed, without sdiohal_card_unlock(). Each such
+call leaks a reference, so card removal, which waits for xmit_cnt to
+drain, can no longer complete after the first failed direct transfer.
+Release the reference on that path.
+
+--- a/unisocwcn/sdio/sdiohal_main.c
++++ b/unisocwcn/sdio/sdiohal_main.c
+@@ -801,8 +801,10 @@ int sdiohal_writel(unsigned int system_a
+ 		return -1;
+ 
+ #ifdef CONFIG_ARCH_SUNXI
+-	if (p_data->dt_rw_fail)
++	if (p_data->dt_rw_fail) {
++		sdiohal_card_unlock(p_data);
+ 		return -1;
++	}
+ #endif
+ 
+ 	sdiohal_resume_check();
+@@ -846,8 +848,10 @@ int sdiohal_readl(unsigned int system_ad
+ 		return -1;
+ 
+ #ifdef CONFIG_ARCH_SUNXI
+-	if (p_data->dt_rw_fail)
++	if (p_data->dt_rw_fail) {
++		sdiohal_card_unlock(p_data);
+ 		return -1;
++	}
+ #endif
+ 
+ 	sdiohal_resume_check();
+@@ -944,8 +948,10 @@ int sdiohal_dt_write(unsigned int system
+ 		return -1;
+ 
+ #ifdef CONFIG_ARCH_SUNXI
+-	if (p_data->dt_rw_fail)
++	if (p_data->dt_rw_fail) {
++		sdiohal_card_unlock(p_data);
+ 		return -1;
++	}
+ #endif
+ 
+ 	sdiohal_resume_check();
+@@ -1002,8 +1008,10 @@ int sdiohal_dt_read(unsigned int system_
+ 		return -1;
+ 
+ #ifdef CONFIG_ARCH_SUNXI
+-	if (p_data->dt_rw_fail)
++	if (p_data->dt_rw_fail) {
++		sdiohal_card_unlock(p_data);
+ 		return -1;
++	}
+ #endif
+ 
+ 	sdiohal_resume_check();

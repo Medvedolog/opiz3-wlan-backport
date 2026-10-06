@@ -1,0 +1,47 @@
+Subject: [PATCH] unisocwifi: fix out-of-bounds write of per-TID ADDBA timestamps
+
+struct sprdwl_peer_entry keeps the time of the last ADDBA attempt per TID
+in "struct timespec time[6 + 1]", but prepare_addba() indexes it with the
+frame's TID, which can be 7: the 802.11u QoS Map in change_priority_if()
+assigns any UP 0..7, and 802.1Q tagged frames carry a 3-bit priority. A
+TID of 7 writes a struct timespec past the end of the array.
+
+Without further fields after time[] this overwrote the start of the next
+peer_entry[] element (the next station's MAC address and LUT fields). With
+the per-LUT counters of 150 directly after the array, it shows up on
+hardware as rx_packets equal to the Unix time in seconds and rx_bytes
+equal to a nanosecond value.
+
+Size the array by IEEE80211_NUM_TIDS and refuse out-of-range TID and LUT
+indexes, and a NULL peer, at the top of prepare_addba().
+
+---
+diff --git a/unisocwifi/tx_msg.c b/unisocwifi/tx_msg.c
+index 2ded243..5ca8e11 100644
+--- a/unisocwifi/tx_msg.c
++++ b/unisocwifi/tx_msg.c
+@@ -1210,6 +1210,10 @@ static void prepare_addba(struct sprdwl_intf *intf, unsigned char lut_index,
+ 		   struct sk_buff *skb, struct sprdwl_peer_entry *peer_entry,
+ 		   unsigned char tid)
+ {
++	if (lut_index >= MAX_LUT_NUM || !peer_entry ||
++	    tid >= ARRAY_SIZE(peer_entry->time))
++		return;
++
+ 	if (intf->tx_num[lut_index] > 9 &&
+ 		peer_entry &&
+ 		(peer_entry->ip_acquired || !sprdwl_is_group(skb->data)) &&
+diff --git a/unisocwifi/wl_core.h b/unisocwifi/wl_core.h
+index ab3537b..5969291 100644
+--- a/unisocwifi/wl_core.h
++++ b/unisocwifi/wl_core.h
+@@ -77,7 +77,8 @@ struct sprdwl_peer_entry {
+ 	unsigned long ba_tx_done_map;
+ 	u8 vowifi_enabled;
+ 	u8 vowifi_pkt_cnt;
+-	struct timespec time[6 + 1];
++	/* last ADDBA attempt per TID (prepare_addba() indexes this by TID) */
++	struct timespec time[IEEE80211_NUM_TIDS];
+ 
+ 	/* Host-side per-LUT traffic counters, reset when the LUT is added or
+ 	 * deleted. RX counts 802.3 MSDUs the firmware delivered for this LUT.

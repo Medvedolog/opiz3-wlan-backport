@@ -1,0 +1,116 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: per-station bytes and packets in get_station
+
+Patch 150 counts, per hardware LUT, what the driver hands to the firmware
+for a peer and what it receives from it, but only shows it in debugfs.
+Report these host-side counters in get_station (AP/GO), so that
+"iw station dump", iwinfo and LuCI show RX/TX bytes and packets per client.
+They are the driver's own counts, not delivery or airtime figures; signal
+and failure counters stay unset.
+
+Also correct the comment on the rate-control block: sta+0x239 is the
+current rate index and sta+0x3a5 is not a live signal (RE doc 56.1).
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1369,10 +1369,11 @@ static int sprdwl_dump_station_addr(struct sprdwl_vif *vif, int idx, u8 *mac)
+  * but no host command or event exports it.
+  *
+  * Report only what the driver knows per peer: that the firmware reported it
+- * as associated, and for how long. With the cp_txrate module parameter the
+- * current TX rate is added from the firmware's rate-control table. Signal, bitrate, failure and traffic
+- * counters are left unset instead of copying interface-wide or meaningless
+- * values into every station.
++ * as associated, for how long, and the bytes and packets the driver itself
++ * exchanged with it. With the cp_txrate module parameter the
++ * current TX rate is added from the firmware's rate-control table. Signal
++ * and failure counters are left unset instead of copying interface-wide or
++ * meaningless values into every station.
+  */
+ static int sprdwl_ap_get_station(struct sprdwl_vif *vif, const u8 *mac,
+ 				 struct station_info *sinfo)
+@@ -1406,6 +1407,8 @@ static int sprdwl_ap_get_station(struct sprdwl_vif *vif, const u8 *mac,
+ 	spin_unlock_irqrestore(&vif->sta_lock, flags);
+ 
+ 	if (found) {
++		/* bytes and packets the driver exchanged with this peer */
++		sprdwl_peer_host_stats(vif->priv->hw_priv, mac, sinfo);
+ 		/* optional: the firmware rate control's current TX rate */
+ 		if (!sprdwl_cp_peer_txrate(vif->priv->hw_priv, mac,
+ 					   &sinfo->txrate))
+diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -519,6 +519,34 @@ static int peer_stats_show(struct seq_file *s, void *p)
+ 	return 0;
+ }
+ 
++/* Host-side traffic counters of the peer with address @mac for
++ * get_station: what the driver handed to the firmware for it and what it
++ * received from it (patch 150). Not delivery or airtime figures.
++ */
++int sprdwl_peer_host_stats(struct sprdwl_intf *intf, const u8 *mac,
++			   struct station_info *sinfo)
++{
++	struct sprdwl_peer_entry *peer;
++	int i;
++
++	for (i = 0; i < MAX_LUT_NUM; i++) {
++		peer = &intf->peer_entry[i];
++		if (peer->ctx_id == 0xff || !ether_addr_equal(peer->tx.da, mac))
++			continue;
++
++		sinfo->rx_bytes = atomic64_read(&peer->rx_bytes);
++		sinfo->rx_packets = atomic64_read(&peer->rx_packets);
++		sinfo->tx_bytes = atomic64_read(&peer->tx_enqueued_bytes);
++		sinfo->tx_packets = atomic64_read(&peer->tx_enqueued_packets);
++		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_RX_BYTES64) |
++				 BIT_ULL(NL80211_STA_INFO_RX_PACKETS) |
++				 BIT_ULL(NL80211_STA_INFO_TX_BYTES64) |
++				 BIT_ULL(NL80211_STA_INFO_TX_PACKETS);
++		return 0;
++	}
++	return -ENOENT;
++}
++
+ static int peer_stats_open(struct inode *inode, struct file *file)
+ {
+ 	return single_open(file, peer_stats_show, inode->i_private);
+@@ -539,7 +567,9 @@ static const struct file_operations peer_stats_fops = {
+  *   0x126128 sets *(0x17d68c + 4) = 0x17e390 and clears 0x2420 bytes;
+  *   the rate formatter 0x128e90 then uses, for station idx,
+  *     sta  = 0x17e390 + idx * 0x228
+- *     mode = sta[0x23d]: 0/1 -> rate index sta[0x238] - 1, else sta[0x239]
++ *     rate index: sta[0x239] (current); sta[0x238] is the size of the
++ *     rate set, so sta[0x238] - 1, which the formatter uses for modes 0/1,
++ *     is the top entry (hardware: docs/...REVERSE-ENGINEERING.md 56.1)
+  *     code = sta[0x1c0 + 5 * index], sgi = sta[0x1c0 + 5 * index + 3]
+  *     desc = 0x17e390 + 7 * code: [3] type 0/1 legacy ([2] * 10 in
+  *            100 kbit/s), 2 HT (MCS [1] & 0x7f), 3 VHT (MCS [1] & 0xf,
+@@ -549,9 +579,9 @@ static const struct file_operations peer_stats_fops = {
+  *   0x1539b0(lut) copies the MAC's per-LUT TX statistics (0x48 bytes,
+  *   signed sum at +0x40, count at +0x44) and 0x128554 adds them to
+  *   sta[0x3a8]/sta[0x3a6]; 0x126d54 turns that into a 50/50-smoothed
+- *   signed average at sta[0x3a5], valid when sta[0x3a4] == 1. A signed
+- *   byte averaged per ACK is taken to be the ACK RSSI in dBm (to be
+- *   confirmed on hardware). The station index is the LUT index.
++ *   signed average at sta[0x3a5], valid when sta[0x3a4] == 1. On hardware
++ *   this value is set at association and never updated (56.1), so it is
++ *   not reported as signal. The station index is the LUT index.
+  *
+  * CP address A is at A + 0x40400000 on the bus (the image at 0x100000 is
+  * loaded at 0x40500000). A failed direct read marks the card dumped on
+diff --git a/unisocwifi/wl_core.h b/unisocwifi/wl_core.h
+--- a/unisocwifi/wl_core.h
++++ b/unisocwifi/wl_core.h
+@@ -227,6 +227,9 @@ void count_tdls_flow(struct sprdwl_vif *vif, u8 *data, u16 len);
+ void sprdwl_tdls_flow_flush(struct sprdwl_vif *vif, const u8 *peer, u8 oper);
+ 
+ struct rate_info;
++struct station_info;
++int sprdwl_peer_host_stats(struct sprdwl_intf *intf, const u8 *mac,
++			   struct station_info *sinfo);
+ int sprdwl_cp_peer_txrate(struct sprdwl_intf *intf, const u8 *mac,
+ 			  struct rate_info *rate);
+ #endif

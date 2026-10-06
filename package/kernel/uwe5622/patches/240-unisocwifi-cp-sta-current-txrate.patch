@@ -1,0 +1,303 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: current TX rate from the firmware rate control
+
+Hardware readings (docs/WCNMODEM-REVERSE-ENGINEERING.md 56.1) show that in
+a rate-control block sta+0x238 is the size of the peer's rate set and
+sta+0x239 the current rate index: 12 near the AP, 3 at -69 dBm, 11 near
+again. Patch 230 printed entry 0x238-1, the top of the set, which never
+changes.
+
+- cp_sta_table: decode the current entry, print the set size and the
+  current index, and label 0x3a5 as assoc-rssi (written once).
+- New module parameter cp_txrate (default off, writable at run time):
+  get_station in AP mode reports the current TX rate of each associated
+  peer. The whole table is read in one direct SDIO transfer, at most every
+  2 s, under the debugfs lock; after one failed read the feature disables
+  itself. Nothing is read while the CP is asserted or dumping.
+
+Signal stays unreported: the firmware keeps no live per-peer RSSI there.
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1369,7 +1369,8 @@ static int sprdwl_dump_station_addr(struct sprdwl_vif *vif, int idx, u8 *mac)
+  * but no host command or event exports it.
+  *
+  * Report only what the driver knows per peer: that the firmware reported it
+- * as associated, and for how long. Signal, bitrate, failure and traffic
++ * as associated, and for how long. With the cp_txrate module parameter the
++ * current TX rate is added from the firmware's rate-control table. Signal, bitrate, failure and traffic
+  * counters are left unset instead of copying interface-wide or meaningless
+  * values into every station.
+  */
+@@ -1404,8 +1405,13 @@ static int sprdwl_ap_get_station(struct sprdwl_vif *vif, const u8 *mac,
+ 	table_full = vif->sta_num >= SPRDWL_MAX_ASSOC_STA;
+ 	spin_unlock_irqrestore(&vif->sta_lock, flags);
+ 
+-	if (found)
++	if (found) {
++		/* optional: the firmware rate control's current TX rate */
++		if (!sprdwl_cp_peer_txrate(vif->priv->hw_priv, mac,
++					   &sinfo->txrate))
++			sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE);
+ 		return 0;
++	}
+ 
+ 	/* Once the table is full a peer may be associated without being
+ 	 * listed. Succeed with an empty station_info, so that hostapd does not
+diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
+--- a/unisocwifi/wl_core.c
++++ b/unisocwifi/wl_core.c
+@@ -567,62 +567,204 @@ static const struct file_operations peer_stats_fops = {
+ 
+ static DEFINE_MUTEX(cp_sta_lock);
+ 
+-static void cp_sta_show_one(struct seq_file *s, struct sprdwl_intf *intf,
+-			    const u8 *tbl, int idx)
++/* Fields of a rate-control block (sta = T + lut * 0x228), see
++ * docs/WCNMODEM-REVERSE-ENGINEERING.md 46 and 56.1:
++ *   0x1c0 + 5*i  rate set entry i: descriptor code, ?, ?, SGI, ?
++ *   0x238        number of entries in the rate set
++ *   0x239        current rate index (rate control)
++ *   0x241        bandwidth: 0 = 20, 1 = 40, 2 = 80 MHz
++ *   0x3a4/0x3a5  ACK RSSI valid/value: set at association, not updated
++ * Rate descriptors are 7 bytes at T + 7*code.
++ */
++#define CP_STA_RATESET		0x1c0
++#define CP_STA_NRATES		0x238
++#define CP_STA_CURRATE		0x239
++#define CP_STA_BW		0x241
++
++struct cp_rate {
++	u8 type;	/* 0/1 legacy, 2 HT, 3 VHT */
++	u8 mcs;
++	u8 nss;
++	u8 sgi;
++	u8 bw;		/* MHz / 20: 1, 2 or 4 */
++	u16 legacy;	/* 100 kbit/s */
++};
++
++/* Decode the current TX rate of block @lut from a copy of the table */
++static int cp_sta_cur_rate(const u8 *tbl, int lut, struct cp_rate *r)
+ {
+-	const u8 *sta = tbl + idx * CP_STA_SIZE;
+-	struct sprdwl_peer_entry *peer = &intf->peer_entry[idx];
+-	unsigned int mode = sta[0x23d], ri, off, code, doff;
++	const u8 *sta = tbl + lut * CP_STA_SIZE;
++	unsigned int n = sta[CP_STA_NRATES], cur = sta[CP_STA_CURRATE];
++	unsigned int off, doff;
+ 	const u8 *desc;
+ 
+-	if (mode == 0 || mode == 1)
+-		ri = (u8)(sta[0x238] - 1);
+-	else
+-		ri = sta[0x239];
+-
+-	off = idx * CP_STA_SIZE + 0x1c0 + 5 * ri;
+-	if (off + 4 > CP_STA_TABLE_LEN) {
+-		seq_printf(s, "%2d mode %u idx %u: out of range\n", idx, mode, ri);
+-		return;
+-	}
+-	code = tbl[off];
+-	doff = 7 * code;
+-	if (doff + 5 > CP_STA_TABLE_LEN) {
+-		seq_printf(s, "%2d mode %u idx %u code %u: out of range\n",
+-			   idx, mode, ri, code);
+-		return;
+-	}
++	if (!n || cur >= n)
++		return -ENOENT;
++	off = lut * CP_STA_SIZE + CP_STA_RATESET + 5 * cur;
++	if (off + 5 > CP_STA_TABLE_LEN)
++		return -ERANGE;
++	doff = 7 * tbl[off];
++	if (doff + 7 > CP_STA_TABLE_LEN)
++		return -ERANGE;
+ 	desc = tbl + doff;
+ 
+-	seq_printf(s, "%2d mode %u idx %3u code %3u type %u ", idx, mode, ri,
+-		   code, desc[3]);
+-	switch (desc[3]) {
++	memset(r, 0, sizeof(*r));
++	r->type = desc[3];
++	r->sgi = tbl[off + 3] ? 1 : 0;
++	r->bw = sta[CP_STA_BW] == 2 ? 4 : sta[CP_STA_BW] == 1 ? 2 : 1;
++	switch (r->type) {
+ 	case 0:
+ 	case 1:
+-		/* formatter stores desc[2] * 10 as the legacy rate */
+-		seq_printf(s, "legacy raw %u (x10 = %u)", desc[2], desc[2] * 10);
++		r->legacy = desc[2] * 10;
+ 		break;
+ 	case 2:
+-		seq_printf(s, "HT MCS %u", desc[1] & 0x7f);
++		r->mcs = desc[1] & 0x7f;
+ 		break;
+ 	case 3:
+-		seq_printf(s, "VHT MCS %u NSS %u", desc[1] & 0xf,
+-			   desc[4] ? 2 : 1);
++		r->mcs = desc[1] & 0xf;
++		r->nss = desc[4] ? 2 : 1;
++		if (r->mcs > 9)
++			return -EINVAL;
+ 		break;
+ 	default:
+-		seq_puts(s, "unknown");
+-		break;
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static void cp_sta_show_one(struct seq_file *s, struct sprdwl_intf *intf,
++			    const u8 *tbl, int idx)
++{
++	const u8 *sta = tbl + idx * CP_STA_SIZE;
++	struct sprdwl_peer_entry *peer = &intf->peer_entry[idx];
++	struct cp_rate r;
++	int ret;
++
++	seq_printf(s, "%2d rates %u cur %u ", idx, sta[CP_STA_NRATES],
++		   sta[CP_STA_CURRATE]);
++	ret = cp_sta_cur_rate(tbl, idx, &r);
++	if (ret) {
++		seq_printf(s, "undecoded (%d)", ret);
++	} else {
++		switch (r.type) {
++		case 0:
++		case 1:
++			seq_printf(s, "legacy %u.%u Mbit/s", r.legacy / 10,
++				   r.legacy % 10);
++			break;
++		case 2:
++			seq_printf(s, "HT MCS %u", r.mcs);
++			break;
++		case 3:
++			seq_printf(s, "VHT MCS %u NSS %u", r.mcs, r.nss);
++			break;
++		}
++		seq_printf(s, " sgi %u bw %u", r.sgi, r.bw * 20);
+ 	}
+-	seq_printf(s, " sgi %u bw %u", tbl[off + 3] ? 1 : 0,
+-		   sta[0x241] == 2 ? 80 : sta[0x241] == 1 ? 40 : 20);
+-	if (idx * CP_STA_SIZE + 0x3a5 < CP_STA_TABLE_LEN && sta[0x3a4] == 1)
+-		seq_printf(s, " rssi %d", (s8)sta[0x3a5]);
++	/* written once at association, not a live signal (56.1) */
++	if (sta[0x3a4] == 1)
++		seq_printf(s, " assoc-rssi %d", (s8)sta[0x3a5]);
+ 	/* the firmware index is the hardware LUT: show the driver's peer */
+ 	if (peer->ctx_id != 0xff)
+ 		seq_printf(s, " lut-peer %pM", peer->tx.da);
+ 	seq_putc(s, '\n');
+ }
+ 
++/* Current TX rate per associated peer for get_station. Off by default: every
++ * refresh is a direct SDIO read of CP memory, and a failed direct read stops
++ * the Wi-Fi until the BSP is reloaded (see patch 220). The table is read at
++ * most once per CP_TXRATE_MAX_AGE and reading stops for good after an error.
++ */
++static bool cp_txrate;
++module_param(cp_txrate, bool, 0644);
++MODULE_PARM_DESC(cp_txrate, "Report per-station TX rate from firmware memory (experimental, default N)");
++
++#define CP_TXRATE_MAX_AGE	(2 * HZ)
++
++static u8 cp_txrate_tbl[CP_STA_TABLE_LEN];
++static unsigned long cp_txrate_stamp;
++static bool cp_txrate_valid, cp_txrate_broken;
++
++static int cp_txrate_refresh(struct sprdwl_intf *intf)
++{
++	u32 ptr = 0;
++	int ret;
++
++	if (cp_txrate_valid &&
++	    time_before(jiffies, cp_txrate_stamp + CP_TXRATE_MAX_AGE))
++		return 0;
++
++	cp_txrate_valid = false;
++	ret = sprdwcn_bus_direct_read(CP_STA_PTR + CP_BUS_OFFSET, &ptr,
++				      sizeof(ptr));
++	if (!ret && ptr != CP_STA_TABLE)
++		ret = -ENODEV;
++	if (!ret)
++		ret = sprdwcn_bus_direct_read(CP_STA_TABLE + CP_BUS_OFFSET,
++					      cp_txrate_tbl, CP_STA_TABLE_LEN);
++	if (ret) {
++		cp_txrate_broken = true;
++		wl_err("cp_txrate: reading firmware memory failed (%d), disabled\n",
++		       ret);
++		return ret;
++	}
++	cp_txrate_stamp = jiffies;
++	cp_txrate_valid = true;
++	return 0;
++}
++
++int sprdwl_cp_peer_txrate(struct sprdwl_intf *intf, const u8 *mac,
++			  struct rate_info *rate)
++{
++	struct cp_rate r;
++	int lut, ret;
++
++	if (!cp_txrate || cp_txrate_broken)
++		return -EOPNOTSUPP;
++	if (intf->cp_asserted || sprdwcn_bus_get_carddump_status())
++		return -EIO;
++
++	/* the firmware's block index is the hardware LUT (46, 56) */
++	for (lut = 0; lut < CP_STA_NUM; lut++)
++		if (intf->peer_entry[lut].ctx_id != 0xff &&
++		    ether_addr_equal(intf->peer_entry[lut].tx.da, mac))
++			break;
++	if (lut == CP_STA_NUM)
++		return -ENOENT;
++
++	mutex_lock(&cp_sta_lock);
++	ret = cp_txrate_refresh(intf);
++	if (!ret)
++		ret = cp_sta_cur_rate(cp_txrate_tbl, lut, &r);
++	mutex_unlock(&cp_sta_lock);
++	if (ret)
++		return ret;
++
++	memset(rate, 0, sizeof(*rate));
++	switch (r.type) {
++	case 0:
++	case 1:
++		rate->legacy = r.legacy;
++		break;
++	case 2:
++		rate->flags = RATE_INFO_FLAGS_MCS;
++		rate->mcs = r.mcs;
++		break;
++	case 3:
++		rate->flags = RATE_INFO_FLAGS_VHT_MCS;
++		rate->mcs = r.mcs;
++		rate->nss = r.nss;
++		break;
++	}
++	if (r.type >= 2) {
++		if (r.sgi)
++			rate->flags |= RATE_INFO_FLAGS_SHORT_GI;
++		rate->bw = r.bw == 4 ? RATE_INFO_BW_80 :
++			   r.bw == 2 ? RATE_INFO_BW_40 : RATE_INFO_BW_20;
++	}
++	return 0;
++}
++
+ static int cp_sta_table_show(struct seq_file *s, void *p)
+ {
+ 	struct sprdwl_intf *intf = s->private;
+diff --git a/unisocwifi/wl_core.h b/unisocwifi/wl_core.h
+--- a/unisocwifi/wl_core.h
++++ b/unisocwifi/wl_core.h
+@@ -225,4 +225,8 @@ enum sprdwl_hw_type sprd_core_get_hwintf_mode(void);
+ void sprdwl_event_tdls_flow_count(struct sprdwl_vif *vif, u8 *data, u16 len);
+ void count_tdls_flow(struct sprdwl_vif *vif, u8 *data, u16 len);
+ void sprdwl_tdls_flow_flush(struct sprdwl_vif *vif, const u8 *peer, u8 oper);
++
++struct rate_info;
++int sprdwl_cp_peer_txrate(struct sprdwl_intf *intf, const u8 *mac,
++			  struct rate_info *rate);
+ #endif

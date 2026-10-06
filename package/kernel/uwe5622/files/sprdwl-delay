@@ -1,0 +1,54 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+start_service() {
+	# KEDUA modul ditunda, bukan hanya sprdwl_ng.
+	#
+	# Versi asli (dari PR ImmortalWrt untuk Orange Pi 3 LTS) sengaja
+	# membiarkan uwe5622_bsp_sdio di-autoload lewat /etc/modules.d/30-uwe5622.
+	# Autoload itu dijalankan kmodloader pada S10boot -- jauh sebelum S20network.
+	# Di Orange Pi Zero 3, probe SDIO-nya menggantung di sana dan boot berhenti
+	# total sebelum jaringan pernah naik: board menyala, link ethernet hidup,
+	# tapi nol frame terkirim.
+	#
+	# Dimuat di sini, setelah netifd selesai, kegagalan driver paling buruk
+	# hanya berarti Wi-Fi mati -- bukan seluruh gateway tidak bisa dijangkau.
+	#
+	# Power-save firmware sengaja dimatikan. Pada UWE5622 mode tidur dapat
+	# membuang broadcast/multicast; untuk AP/router stabilitas ARP, IPv6 ND
+	# dan mDNS lebih penting daripada penghematan a few десятых ватта.
+	#
+	# The radio is found by its device path, not as phy0/radio0
+	# (/lib/uwe5622.sh): a USB adapter present at boot registers first.
+	#
+	# insmod, not modprobe: ubox modprobe takes module names only and drops
+	# any "param=value" argument (parameters come from /etc/modules.conf),
+	# so "modprobe sprdwl_ng disable_powersave=1" never set the parameter.
+	# insmod passes its arguments through. Dependencies (cfg80211,
+	# uwe5622_bsp_sdio) are already loaded at this point. Extra driver
+	# parameters, e.g. max_bw_5g=80, go in /etc/uwe5622.options.
+	#
+	# On the first boot the radio appears long after LuCI and the hotplug
+	# "wifi config" may not have run yet: create the config here if it is
+	# missing, so that the htmode clamp sees it, and drop LuCI's menu cache,
+	# built while there was no wireless config, so "Wireless" shows up.
+	/usr/sbin/uwe5622-iwinfo-name
+
+	procd_open_instance
+	procd_set_param command /bin/sh -c \
+		'. /lib/uwe5622.sh; \
+		 sleep 15; \
+		 /sbin/modprobe uwe5622_bsp_sdio || exit 1; \
+		 sleep 5; \
+		 [ -d /sys/module/sprdwl_ng ] || uwe_load_wifi || exit 1; \
+		 uwe_wait_phy 30 >/dev/null || exit 1; \
+		 [ -n "$(uwe_radios)" ] || /sbin/wifi config; \
+		 /usr/sbin/uwe5622-clamp-htmode; \
+		 rm -f /tmp/luci-indexcache*; \
+		 uwe_wifi up'
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}

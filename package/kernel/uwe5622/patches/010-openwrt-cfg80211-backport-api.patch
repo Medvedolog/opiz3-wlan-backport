@@ -1,0 +1,20 @@
+From: jukeboge <jukeboge@gmail.com>
+Subject: [PATCH] uwe5622: support OpenWrt's backported cfg80211 API
+
+OpenWrt backports the current cfg80211 API to older target kernels, so the
+kernel version alone cannot select the change_beacon callback prototype.
+
+Signed-off-by: jukeboge <jukeboge@gmail.com>
+---
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -1095,7 +1095,8 @@ static int sprdwl_cfg80211_start_ap(struc
+ 	return ret;
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 7, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 7, 0) || \
++	defined(OPENWRT_CFG80211_BACKPORT)
+ static int sprdwl_cfg80211_change_beacon(struct wiphy *wiphy,
+ 					 struct net_device *ndev,
+ 					 struct cfg80211_ap_update *info)
