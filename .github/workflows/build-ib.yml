@@ -234,9 +234,18 @@ jobs:
           CONFIG_PACKAGE_iwinfo=m
           CONFIG_PACKAGE_libiwinfo=m
           CONFIG_PACKAGE_libiwinfo-data=m
+          # keep build directories (AUTOREMOVE deletes them after each
+          # package) and rebuild a package only when its stamp hash changes:
+          # AUTOREBUILD's "build dir newer than .built" check misfires on the
+          # apk-* packaging dirs and rebuilt every kmod on every make call
+          # CONFIG_AUTOREMOVE is not set
+          # CONFIG_AUTOREBUILD is not set
           EOF
           sed -i 's/^ *//' .config
           make defconfig
+          if grep -E '^CONFIG_AUTO(REMOVE|REBUILD)=y' .config; then
+            echo "defconfig turned AUTOREMOVE/AUTOREBUILD back on"; exit 1
+          fi
 
       - name: Build
         if: steps.repo.outputs.cache-hit != 'true'
@@ -244,19 +253,17 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p logs
-          for p in package/kernel/mac80211 package/kernel/uwe5622 \
-                   package/firmware/uwe5622-firmware \
-                   package/kmod-amneziawg package/amneziawg-tools \
-                   package/luci-app-amneziawg package/luci-theme-footstrap \
-                   package/feeds/base/iwinfo; do
-            echo "::group::$p"
-            log="logs/$(basename "$p").log"
-            make "$p/compile" -j"$(nproc)" V=s > "$log" 2>&1 || {
-              tail -150 "$log"; exit 1; }
-            # what was actually done, and how long each part took
-            grep -E '^time: |Collecting package info|Need to rebuild' "$log" | head -60 || true
-            echo "::endgroup::"
-          done
+          # one make call: the kernel package (all SDK kmods) is packed once
+          make -j"$(nproc)" V=s \
+            package/kernel/mac80211/compile package/kernel/uwe5622/compile \
+            package/firmware/uwe5622-firmware/compile \
+            package/kmod-amneziawg/compile package/amneziawg-tools/compile \
+            package/luci-app-amneziawg/compile \
+            package/luci-theme-footstrap/compile \
+            package/feeds/base/iwinfo/compile > logs/build.log 2>&1 || {
+              tail -200 logs/build.log; exit 1; }
+          # what was actually built, and how long each part took
+          grep -E '^time: ' logs/build.log || true
 
       - name: Collect, check and index our packages
         if: steps.repo.outputs.cache-hit != 'true'
