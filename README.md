@@ -148,6 +148,10 @@ Each build produces:
 
 - **Image** (`opiz3-image-25.12.5`): squashfs and ext4 SD-card images.
   Flash them like any OpenWrt sunxi image.
+  As in stock OpenWrt, the Wi-Fi network is **off after flashing** (open,
+  `disabled=1`): set an SSID and a WPA2 key in LuCI → Network → Wireless and
+  enable it. Also set a root password (`passwd` or LuCI → System →
+  Administration).
 - **ImageBuilder** (`opiz3-imagebuilder-25.12.5`): the official ImageBuilder
   with the Wi-Fi device tree already in the kernel, our packages, the key and
   the repository. Build your own package set with it:
@@ -220,7 +224,7 @@ the firmware's behaviour stayed as they were.
 | Firmware crash | Vendor driver does not recover: Wi-Fi dead until reboot | Automatic driver reload, rate-limited (`uwe5622-recover`) |
 | Name in LuCI | "Generic" | "Unisoc UWE5622" (iwinfo patch; also in the `iwinfo` CLI) |
 | Board status | None | LuCI Overview panel: SoC temperatures, CPU frequency, Wi-Fi driver state and firmware, host vs firmware channel width, SDIO bus clock, firmware recoveries (`luci-app-opiz3-status`) |
-| CPU frequency | Kernel default "performance" (always 1512 MHz) | `ondemand` by default; governor and min/max in LuCI System → CPU frequency (`/etc/config/opiz3`). No overclocking: the table stops at the SoC's 1512 MHz / 1.10 V, and Wi-Fi is limited by SDIO, not the CPU |
+| CPU frequency | Kernel default "performance" (always the top frequency, 1416 or 1512 MHz depending on the chip's speed bin) | `ondemand` by default; governor and min/max in LuCI System → CPU frequency (`/etc/config/opiz3`). No overclocking: the table stops at the SoC's 1512 MHz / 1.10 V (1416 MHz on some chips, read from the eFuse speed bin), and Wi-Fi is limited by SDIO, not the CPU |
 | Firmware internals | Unknown | Reverse engineered, published ([notes](docs/WCNMODEM-REVERSE-ENGINEERING.md)) |
 | Build | Manual steps | CI: SDK + ImageBuilder, signed repo, image checks |
 
