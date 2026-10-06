@@ -243,15 +243,18 @@ jobs:
         working-directory: sdk
         run: |
           set -o pipefail
+          mkdir -p logs
           for p in package/kernel/mac80211 package/kernel/uwe5622 \
                    package/firmware/uwe5622-firmware \
                    package/kmod-amneziawg package/amneziawg-tools \
                    package/luci-app-amneziawg package/luci-theme-footstrap \
                    package/feeds/base/iwinfo; do
             echo "::group::$p"
-            make "$p/compile" -j"$(nproc)" V=s > build.log 2>&1 || {
-              tail -150 build.log; exit 1; }
-            tail -15 build.log
+            log="logs/$(basename "$p").log"
+            make "$p/compile" -j"$(nproc)" V=s > "$log" 2>&1 || {
+              tail -150 "$log"; exit 1; }
+            # what was actually done, and how long each part took
+            grep -E '^time: |Collecting package info|Need to rebuild' "$log" | head -60 || true
             echo "::endgroup::"
           done
 
@@ -309,6 +312,13 @@ jobs:
             sdk/staging_dir
             sdk/dl
           key: sdk-build-${{ env.RELEASE }}-${{ github.run_id }}
+
+      - if: always() && steps.repo.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-build-logs
+          path: sdk/logs/
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
