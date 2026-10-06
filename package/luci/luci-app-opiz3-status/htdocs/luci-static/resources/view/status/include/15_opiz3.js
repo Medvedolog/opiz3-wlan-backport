@@ -35,6 +35,20 @@ function tempCell(mC) {
 		'%.1f °C'.format(c));
 }
 
+function bytes(n) {
+	if (n == null)
+		return '?';
+	if (n >= 1073741824)
+		return '%.2f GB'.format(n / 1073741824);
+	return '%.1f MB'.format(n / 1048576);
+}
+
+function duration(s) {
+	if (s == null)
+		return '?';
+	return '%t'.format(s);
+}
+
 function yesNo(v) {
 	return v ? _('yes') : _('no');
 }
@@ -144,6 +158,46 @@ return baseclass.extend({
 				E('td', { 'class': 'td left' }, [ r[1] ])
 			]));
 		});
-		return table;
+
+		var out = [];
+
+		if (w.default_key)
+			out.push(E('div', { 'class': 'alert-message warning' }, [
+				E('strong', {}, _('The Wi-Fi password is still the default one (12345678test).')), ' ',
+				_('Anyone who knows this image can join. Change it in Network → Wireless → Edit → Wireless Security.')
+			]));
+
+		out.push(table);
+
+		var cl = w.clients || [];
+		if (cl.length) {
+			var ct = E('table', { 'class': 'table' }, [
+				E('tr', { 'class': 'tr table-titles' }, [
+					E('th', { 'class': 'th' }, _('Wi-Fi client')),
+					E('th', { 'class': 'th' }, _('MAC')),
+					E('th', { 'class': 'th' }, _('Received from client')),
+					E('th', { 'class': 'th' }, _('Sent to client')),
+					E('th', { 'class': 'th' }, _('TX rate')),
+					E('th', { 'class': 'th' }, _('Connected'))
+				])
+			]);
+			cl.forEach(function(c) {
+				var rate = c.tx_rate ? '%.1f Mbit/s'.format(c.tx_rate / 10) +
+					(c.tx_mhz ? ', %d MHz'.format(c.tx_mhz) : '') +
+					(c.tx_mcs != null ? (c.tx_vht ? ', VHT-MCS ' : ', MCS ') + c.tx_mcs : '')
+					: (cpRate ? '—' : _('cp_txrate=0'));
+				ct.appendChild(E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td' }, (c.name || '?') + (c.ip ? ' (' + c.ip + ')' : '')),
+					E('td', { 'class': 'td' }, c.mac.toUpperCase()),
+					E('td', { 'class': 'td' }, bytes(c.rx_bytes)),
+					E('td', { 'class': 'td' }, bytes(c.tx_bytes)),
+					E('td', { 'class': 'td' }, rate),
+					E('td', { 'class': 'td' }, duration(c.connected))
+				]));
+			});
+			out.push(ct);
+		}
+
+		return E('div', {}, out);
 	}
 });

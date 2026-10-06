@@ -5,6 +5,14 @@
 // Wi-Fi chip, so polling it cannot disturb the radio.
 
 import { readfile, lsdir, stat, readlink } from 'fs';
+import { cursor } from 'uci';
+
+// the Wi-Fi password the image sets on first boot (sprdwl-delay); the panel
+// warns while it is still in use
+const DEFAULT_KEY = '12345678test';
+
+let nl80211;
+try { nl80211 = require('nl80211'); } catch (e) { nl80211 = null; }
 
 function rd(path) {
 	let s = readfile(path);
@@ -84,6 +92,66 @@ function fw_version() {
 	return fw_version_cache;
 }
 
+// DHCP names and addresses by MAC, from dnsmasq's lease file
+function leases() {
+	let r = {};
+	for (let l in split(readfile('/tmp/dhcp.leases') ?? '', '\n')) {
+		let f = split(l, ' ');
+		if (length(f) >= 4)
+			r[lc(f[1])] = { ip: f[2], name: (f[3] == '*') ? null : f[3] };
+	}
+	return r;
+}
+
+// stations of our AP interfaces, the same data as "iw dev X station dump"
+// (one netlink dump; the driver answers from its own counters)
+function clients(ifaces) {
+	let out = [];
+	if (!nl80211)
+		return out;
+	let names = leases();
+	for (let ifname in ifaces) {
+		let st = nl80211.request(nl80211.const.NL80211_CMD_GET_STATION,
+			nl80211.const.NLM_F_DUMP, { dev: ifname }) ?? [];
+		for (let s in st) {
+			let i = s.sta_info ?? {};
+			let tx = i.tx_bitrate ?? {};
+			let mac = lc(s.mac ?? '');
+			push(out, {
+				ifname: ifname,
+				mac: mac,
+				name: names[mac]?.name,
+				ip: names[mac]?.ip,
+				rx_bytes: i.rx_bytes64 ?? i.rx_bytes,
+				tx_bytes: i.tx_bytes64 ?? i.tx_bytes,
+				connected: i.connected_time,
+				signal: i.signal,
+				tx_rate: tx.bitrate32 ?? tx.bitrate,
+				tx_mcs: tx.vht_mcs ?? tx.mcs,
+				tx_vht: (tx.vht_mcs != null),
+				tx_mhz: tx.width_80 ? 80 : (tx['40_mhz_width'] ? 40 : (tx.bitrate32 ?? tx.bitrate) ? 20 : null),
+			});
+		}
+	}
+	return out;
+}
+
+// any of our Wi-Fi networks still on the default password
+function default_key() {
+	let c = cursor();
+	let radios = {};
+	let found = false;
+	c.foreach('wireless', 'wifi-device', (d) => {
+		if (index(d.path ?? '', 'platform/unisoc_wifi') == 0)
+			radios[d['.name']] = true;
+	});
+	c.foreach('wireless', 'wifi-iface', (w) => {
+		if (radios[w.device] && w.disabled != '1' && w.key == DEFAULT_KEY)
+			found = true;
+	});
+	return found;
+}
+
 function wifi() {
 	let w = {
 		bsp: !!stat('/sys/module/uwe5622_bsp_sdio'),
@@ -122,6 +190,8 @@ function wifi() {
 
 	w.sdio = sdio();
 	w.firmware = fw_version();
+	w.clients = clients(filter(w.ifaces ?? [], (n) => !match(n, /-sta[0-9]*$/)));
+	w.default_key = default_key();
 	return w;
 }
 
