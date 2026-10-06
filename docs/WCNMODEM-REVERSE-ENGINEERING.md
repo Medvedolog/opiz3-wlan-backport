@@ -2437,3 +2437,25 @@ has already reduced "all" to it) and refuses others; `set_tx_power` accepts
 neither RTS nor fragmentation changed. A user-set `txpower` in
 `/etc/config/wireless` therefore still logs `-95`, which is correct: the
 firmware cannot do it.
+
+## 60. Open: where the channel width stops following the host (test plan)
+
+§57 shows the firmware at 80 MHz (rate-control `sta+0x241 = 2`, phone link
+390/433 Mbit/s, iperf3 ~160 Mbit/s) while the host configured 20 MHz. So
+`max_bw_5g=20` limits the host configuration only. Hypothesis, unconfirmed:
+the firmware picks the width from its own and the client's VHT capabilities
+and ignores the host `chandef`.
+
+Matrix, same client, same place, channel 36:
+
+| `max_bw_5g` / htmode | `START_AP` log (patch 170: `chandef`, `ds`, `ht_pri`, `ht_sec`, `vht_w`, `vht_cf0`) | `sta+0x241` (`cp_sta_table`) | phone link rate | iperf3 |
+|---|---|---|---|---|
+| 20 / VHT20 | ? | ? | ? | ? |
+| 40 / VHT40 | ? | ? | ? | ? |
+| 80 / VHT80 | ? | ? | ? | ? |
+
+Chain to locate the break: cfg80211 `chandef` → beacon HT/VHT Operation →
+`START_AP` command → CP station table bandwidth → client PHY rate. If
+`sta+0x241` stays 2 in all three rows, the host width is decorative for the
+firmware, and the next step is the `START_AP` / `NEW_STA` fields the firmware
+actually reads for bandwidth.
