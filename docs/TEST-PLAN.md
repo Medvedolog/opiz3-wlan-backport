@@ -52,6 +52,20 @@ uci set wireless.wwan.key='UPLINK-PASSWORD'
 uci commit; /etc/init.d/firewall reload; wifi
 ```
 
+### Travelmate (in the image from r15)
+
+`travelmate` + `luci-app-travelmate` (LuCI Services → Travelmate) pick an
+uplink from a list of known networks, reconnect, and can log into captive
+portals. Off until enabled. With one radio it is the S5 case: the STA
+scans and moves channels while our AP runs on the same radio.
+
+| # | Case | Look at |
+|---|---|---|
+| T1 | Scan from LuCI Travelmate (AP running) | scan results appear; no assert; AP clients stay or come back |
+| T2 | Two known uplinks, switch off the active one | Travelmate moves to the other; time; AP follows the channel |
+| T3 | Uplink on a blocked channel (DFS 52–144, or 80 MHz where `max_bw_5g` forbids it) | fails cleanly (log line), no firmware assert |
+| T4 | Captive portal (hotel/cafe hotspot), if available | login page reachable through LuCI |
+
 For S5 the vendor driver has single-channel AP+STA support
 (`STA_SOFTAP_SCC_MODE`); whether this firmware and our patches handle it is
 exactly what the test shows.

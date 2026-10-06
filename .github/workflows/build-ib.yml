@@ -435,6 +435,7 @@ jobs:
             kmod-rtw88-8822bu kmod-rtw88-8822cu kmod-rtw88-8723du
             kmod-ath9k-htc kmod-ath6kl-usb kmod-brcmfmac
             luci luci-ssl luci-theme-footstrap luci-theme-bootstrap luci-app-opiz3-status
+            travelmate luci-app-travelmate
             kmod-amneziawg amneziawg-tools luci-app-amneziawg
             kmod-wireguard wireguard-tools luci-proto-wireguard kmod-tun
             sing-box curl jq ca-bundle coreutils-base64 bind-dig nftables-json
@@ -473,6 +474,7 @@ jobs:
 
           echo "== packages =="
           for p in kmod-uwe5622 uwe5622-firmware kmod-amneziawg luci-theme-footstrap luci-app-opiz3-status \
+                   travelmate luci-app-travelmate \
                    libiwinfo-data kmod-cfg80211 wpad-basic-mbedtls; do
             grep "^$p " "$MAN" || { echo "MISSING $p"; exit 1; }
           done
