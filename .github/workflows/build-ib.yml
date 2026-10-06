@@ -625,7 +625,7 @@ jobs:
           OWNER=${GITHUB_REPOSITORY%%/*}; REPO=${GITHUB_REPOSITORY#*/}
           cat > notes.md <<EOF
           Official OpenWrt $RELEASE kernel: every kmod from downloads.openwrt.org installs with apk.
-          Extra packages (UWE5622 driver, AmneziaWG, Footstrap, iwinfo) come from https://$OWNER.github.io/$REPO/ ,
+          Extra packages (UWE5622 driver, board status/CPU frequency panel, AmneziaWG, Footstrap, iwinfo) come from https://$OWNER.github.io/$REPO/ ,
           which the image already trusts.
 
           Images:
@@ -641,12 +641,34 @@ jobs:
 
           Built from ${GITHUB_SHA}.
           EOF
-          gh release delete "$TAG" --cleanup-tag -y -R "$GITHUB_REPOSITORY" || true
-          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease \
-            --target "$GITHUB_SHA" \
-            --title "Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}" \
-            --notes-file notes.md \
-            art/opiz3-image-$RELEASE/* \
-            art/opiz2-image-$RELEASE/*.gz \
-            art/opiz2-image-$RELEASE/*.manifest \
-            art/opiz3-imagebuilder-$RELEASE/*
+          FILES=$(ls art/opiz3-image-$RELEASE/* art/opiz2-image-$RELEASE/*.gz \
+            art/opiz2-image-$RELEASE/*.manifest art/opiz3-imagebuilder-$RELEASE/*)
+          TITLE="Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}"
+          R="$GITHUB_REPOSITORY"
+          dup=$(for f in $FILES; do basename "$f"; done | sort | uniq -d)
+          [ -z "$dup" ] || { echo "duplicate asset names: $dup"; exit 1; }
+
+          # Update the release in place instead of delete + create: a
+          # create right after deleting the same tag can fail, and then
+          # there is no release at all until the next run.
+          if gh release view "$TAG" -R "$R" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$R/git/refs/tags/$TAG" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release edit "$TAG" -R "$R" --prerelease --target "$GITHUB_SHA" \
+              --title "$TITLE" --notes-file notes.md
+            gh release upload "$TAG" -R "$R" --clobber $FILES
+            # drop assets of earlier builds that this one does not have
+            new=$(for f in $FILES; do basename "$f"; done)
+            gh release view "$TAG" -R "$R" --json assets -q '.assets[].name' |
+              while read -r a; do
+                echo "$new" | grep -qxF "$a" || gh release delete-asset "$TAG" "$a" -R "$R" -y
+              done
+          else
+            for i in 1 2 3; do
+              gh release create "$TAG" -R "$R" --prerelease --target "$GITHUB_SHA" \
+                --title "$TITLE" --notes-file notes.md $FILES && break
+              [ "$i" = 3 ] && exit 1
+              echo "release create failed, retrying in 20 s"; sleep 20
+            done
+          fi
+          gh release view "$TAG" -R "$R" --json assets -q '.assets[].name'
