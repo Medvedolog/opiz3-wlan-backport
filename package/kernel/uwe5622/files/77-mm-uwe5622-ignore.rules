@@ -1,0 +1,9 @@
+# ModemManager: the onboard UWE5622 Wi-Fi (platform device unisoc_wifi) is
+# not a modem. Without this MM probes wlan0/phyN-ap0 on every Wi-Fi start
+# ("couldn't check support for device .../unisoc_wifi"). OpenWrt builds MM
+# without udev; it reads 77-mm-* .. 80-mm-* files from /lib/udev/rules.d
+# itself at startup.
+
+ACTION!="add|change|move|bind", GOTO="mm_uwe5622_end"
+SUBSYSTEM=="net", DRIVERS=="unisoc_wifi", ENV{ID_MM_DEVICE_IGNORE}="1"
+LABEL="mm_uwe5622_end"

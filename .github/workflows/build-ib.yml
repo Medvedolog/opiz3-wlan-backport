@@ -513,6 +513,7 @@ jobs:
           chk 'grep -q "insmod sprdwl_ng disable_powersave=1" "$ROOT/lib/uwe5622.sh"'
           chk 'grep -q "uwe_load_wifi" "$ROOT/etc/init.d/sprdwl-delay"'
           chk 'grep -q "uwe_mmc_host" "$ROOT/usr/sbin/uwe5622-recover"'
+          chk 'grep -q "DRIVERS==\"unisoc_wifi\"" "$ROOT/lib/udev/rules.d/77-mm-uwe5622-ignore.rules"'
           chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
           chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
