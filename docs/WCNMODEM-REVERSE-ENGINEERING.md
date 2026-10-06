@@ -2240,7 +2240,7 @@ Image: official-kernel build (`build-ib.yml`, run 37418761145), driver
 patches 010–230. Board: Orange Pi Zero 3. AP on ch36, `htmode VHT20`,
 WPA2-PSK, `max_bw_5g=20`. One Android phone associated, about 1 m away.
 
-## 56. `cp_sta_table` on hardware: LUT mapping holds, values do not update (2026-10-06)
+## 56. `cp_sta_table` on hardware: LUT mapping holds, first decoder read the wrong index (2026-10-06)
 
 Board, patch 230 output (station lines; raw dump omitted):
 
@@ -2272,6 +2272,50 @@ Working hypothesis: this table keeps per-peer rate-control *configuration*
 (rate set, initial index); the live state is maintained elsewhere, possibly
 in the ROM part of the WLAN stack (§37). Next step: diff full dumps taken
 at different distances and after traffic to find any bytes that change.
+
+
+### 56.1 Three dumps: the live rate index is `sta+0x239`
+
+Full dumps were taken near the board (phone −25 dBm), in another room
+(−69 dBm) and near again (−19 dBm). Inside block 6 (absolute
+`0xe84..0x10ac`) only these bytes change:
+
+| Offset in block (`sta+`) | Near −25 | Far −69 | Near −19 | Meaning |
+|---|---|---|---|---|
+| `0x238` | 13 | 13 | 13 | number of entries in the peer's rate set |
+| `0x239` | 12 | **3** | 11 | **current rate index** (rate control) |
+| `0x241` | 2 | 2 | 2 | bandwidth, 2 = 80 MHz |
+| `0x2e4..0x314` step 12, byte 1 | 100,97,98,96,99 | 0,0,0,0,0 | 0,0,100,100 | per-rate delivery %, rates 8..12 |
+| `0x1a0..0x1a7` (two u32) | 1, 1 | 3651, 651 | 3651, 651 | counters, not yet identified |
+| `0x3a4`/`0x3a5` | 1 / −35 | 1 / −35 | 1 / −35 | "ACK RSSI": set once, **not updated** |
+
+The rate set of this peer (`sta+0x1c0`, 5 bytes per entry: descriptor code,
+?, ?, SGI, ?) decodes through the descriptor table at `T + 7*code`:
+
+| idx | code | rate (80 MHz) |
+|---|---|---|
+| 0 | 5 | legacy 6 Mbit/s |
+| 1–9 | 8,15,19,23,28,33,37,39,41 | VHT MCS0..8, NSS1 |
+| 10 | 43 | VHT MCS9 (390) |
+| 11 | 43, SGI | VHT MCS9 SGI (433) |
+| 12 | 43, SGI, last byte 1 | VHT MCS9 SGI (433) |
+
+So: near the board index 11–12 (433 Mbit/s), at −69 dBm index 3 =
+VHT80 MCS2 = 88 Mbit/s. The firmware's rate control works and the current
+TX rate to each client is readable. The §40 formatter's `sta+0x238 − 1` for
+modes 0/1 is the **top** of the set (patch 230 printed that, hence the
+constant output); the live value is `sta+0x239`.
+
+Per-client signal is still missing: `sta+0x3a5` keeps its first value. Per
+§48 it is only updated when the hardware per-LUT block reports a non-zero
+RSSI count, which apparently does not happen here.
+
+| Finding | Confidence |
+|---|---|
+| Current TX rate = rate set entry `sta+0x239` | **High (3 hardware points)** |
+| `sta+0x238` = rate-set size | High |
+| Per-rate delivery % at `sta+0x284 + 12*i` (byte 1) | Medium |
+| `sta+0x3a5` is a live RSSI | **Rejected**: static after association |
 
 ## 57. The firmware uses 80 MHz although the host configured 20 MHz
 
