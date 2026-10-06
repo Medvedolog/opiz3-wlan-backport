@@ -33,7 +33,8 @@ What sets it apart from earlier builds:
 
 - **Официальные kmod ставятся через `apk`.** Образ собран из официального ядра
   через ImageBuilder. Драйвер, прошивка, AmneziaWG и Footstrap лежат в нашем
-  подписанном apk-репозитории.
+  подписанном apk-репозитории. Что ещё в образе и зачем —
+  [docs/IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md).
 - **Драйвер исправлен, а не просто собран.** Исправлены переполнения, гонки и
   утечки. Прошивка защищена от режимов, на которых она падает. После её
   падения драйвер перезапускается сам. Статистика клиентов показывает только
@@ -194,7 +195,9 @@ The default image includes:
 - USB Wi-Fi drivers;
 - modem support (ModemManager, QMI, MBIM, NCM, RNDIS, serial).
 
-Anything else can be installed with `apk`.
+The full list, with the reason for each package, is in
+[docs/IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md). Anything else can be
+installed with `apk`.
 
 ## Background: earlier attempts
 
@@ -380,6 +383,7 @@ with the Wi-Fi keys masked. Attach it to an issue.
 
 | Document | Contents |
 |---|---|
+| [IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md) | What is in the image and why |
 | [TEST-PLAN.md](docs/TEST-PLAN.md) | Hardware checks before a release, with commands; client (STA) mode |
 | [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Firmware reverse engineering, revisions 1–4 (§1–§60) |
 | [NEW-DRIVER-ARCHITECTURE.md](docs/NEW-DRIVER-ARCHITECTURE.md) | New driver design, SDIO/command protocol map, milestones |
