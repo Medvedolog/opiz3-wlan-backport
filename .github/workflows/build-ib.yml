@@ -103,8 +103,7 @@ jobs:
           cp -r ../package/firmware/uwe5622-firmware package/firmware/
           chmod +x package/kernel/uwe5622/files/*
 
-          # iwinfo: our patch, and a higher release so it wins over the
-          # official build of the same version
+          # iwinfo: our patch on the official package's source version
           # follow the link "feeds install" created; feeds/base itself may be a link
           IW=$(readlink -f package/feeds/base/iwinfo || true)
           if [ ! -f "$IW/Makefile" ]; then
@@ -115,8 +114,15 @@ jobs:
           echo "iwinfo package: $IW"
           mkdir -p "$IW/patches"
           cp ../package/network/utils/iwinfo/patches/*.patch "$IW/patches/"
-          sed -i 's/^PKG_RELEASE:=\([0-9]*\)$/PKG_RELEASE:=1\1/' "$IW/Makefile"
-          grep -n '^PKG_RELEASE' "$IW/Makefile"
+          # the official repo carries a newer iwinfo than the SDK feed (built
+          # from the release branch), so build that same source version
+          curl -fsSL -o "$IW/Makefile" \
+            "https://raw.githubusercontent.com/openwrt/openwrt/openwrt-${RELEASE%.*}/package/network/utils/iwinfo/Makefile"
+          grep -E '^PKG_SOURCE_(DATE|VERSION)' "$IW/Makefile"
+          # and a release that is always above the official package
+          sed -i '/^PKG_RELEASE:=/d' "$IW/Makefile"
+          sed -i 's|^include \$(INCLUDE_DIR)/package.mk|PKG_RELEASE:=101\n&|' "$IW/Makefile"
+          grep -n '^PKG_RELEASE:=101' "$IW/Makefile"
 
           git clone --depth 1 --branch "$FOOTSTRAP_TAG" \
             https://github.com/VizzleTF/luci-theme-footstrap.git /tmp/footstrap
@@ -338,14 +344,19 @@ jobs:
 
           echo "== rootfs =="
           ROOT=$(find build_dir -maxdepth 2 -type d -name 'root-*' | head -1)
-          test -f "$ROOT/etc/apk/keys/$KEY_NAME.pem"
-          grep -qx "$REPO_URL" "$ROOT/etc/apk/repositories.d/customfeeds.list"
-          test -f "$ROOT/etc/uwe5622.options"
-          test -x "$ROOT/usr/sbin/uwe5622-recover"
-          test -f "$ROOT/etc/hotplug.d/platform/50-uwe5622-recover"
-          grep -q 'insmod sprdwl_ng disable_powersave=1' "$ROOT/etc/init.d/sprdwl-delay"
-          grep -q '"platform:unisoc_wifi"' "$ROOT/usr/share/libiwinfo/devices.txt"
-          strings "$ROOT"/usr/lib/libiwinfo.so* | grep -q 'device/modalias'
+          echo "rootfs: $ROOT"
+          chk() { if eval "$1"; then echo "  OK      $1"; else echo "  FAIL    $1"; FAILED=1; fi; }
+          FAILED=0
+          chk 'test -f "$ROOT/etc/apk/keys/$KEY_NAME.pem"'
+          chk 'grep -qx "$REPO_URL" "$ROOT/etc/apk/repositories.d/customfeeds.list"'
+          chk 'test -f "$ROOT/etc/uwe5622.options"'
+          chk 'test -x "$ROOT/usr/sbin/uwe5622-recover"'
+          chk 'test -f "$ROOT/etc/hotplug.d/platform/50-uwe5622-recover"'
+          chk 'grep -q "insmod sprdwl_ng disable_powersave=1" "$ROOT/etc/init.d/sprdwl-delay"'
+          chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
+          chk 'strings "$ROOT"/usr/lib/libiwinfo.so* | grep -q device/modalias'
+          grep -E '^(iwinfo|libiwinfo)' "$MAN"
+          test "$FAILED" = 0
           echo "  OK      key, repo, driver files, iwinfo entry and modalias fallback"
 
       - name: Package ImageBuilder

@@ -8,19 +8,17 @@ back to the device's modalias if it is "platform:<name>" and match it
 against the compatible-string entries of devices.txt.
 
 diff --git a/devices.txt b/devices.txt
-index 5660a24..7f26b2b 100644
 --- a/devices.txt
 +++ b/devices.txt
-@@ -270,3 +270,4 @@
+@@ -274,3 +274,4 @@
  "ralink,rt3883-wmac"    0      0  "Ralink" "Rt3883"
  "ralink,rt5350-wmac"    0      0  "Ralink" "Rt5350"
  "ralink,rt7620-wmac"    0      0  "MediaTek" "MT7620"
 +"platform:unisoc_wifi"  0      0  "Unisoc" "UWE5622"
 diff --git a/iwinfo_nl80211.c b/iwinfo_nl80211.c
-index 1dd6a67..04925ce 100644
 --- a/iwinfo_nl80211.c
 +++ b/iwinfo_nl80211.c
-@@ -3715,10 +3715,22 @@ static int nl80211_hardware_id_from_fdt(struct iwinfo_hardware_id *id, const cha
+@@ -3717,10 +3717,22 @@ static int nl80211_hardware_id_from_fdt(struct iwinfo_hardware_id *id, const cha
  	snprintf(path, sizeof(path), "/sys/class/%s/%s/device/of_node/compatible",
  	         phy ? "ieee80211" : "net", phy ? phy : ifname);
  
