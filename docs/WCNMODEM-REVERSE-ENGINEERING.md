@@ -2498,8 +2498,7 @@ row 20/VHT20 says no).
 
 Second pass over `wcnmodem.bin` (sha256 `119b87ce…a80`) with two questions:
 where the hardware keeps per-client data that §56.1 could not find in the
-image RAM, and how the AP interface could get its own MAC (repeater, §64
-plan).
+image RAM, and how the AP interface could get its own MAC (repeater).
 
 ### 63.1 Readable windows, from the vendor's own crash dump
 
@@ -2527,8 +2526,8 @@ same for the TX-statistics buffer and clears it:
 
 | Bus address | Size | Layout | Programmed into | Used by the image |
 |---|---|---|---|---|
-| `0x40340000` | `0xc80` | 32 × `0x64` (one per LUT) | `0x400fc058` | `+0x30..+0x3c` written on key/PN setup (`0x155bc4`); `+0x43` bit 7, `+0x4c` bit 15, `+0x4e` read (`0x155e18..0x155e4a`) |
-| `0x40340c80` | `0x200` | — | `0x400fc058 + 4` region | — |
+| `0x40340000` | `0xc80` | 32 × `0x64` (one per LUT) | `0x400f1174` | `+0x30..+0x3c` written on key/PN setup (`0x155bc4`); `+0x43` bit 7, `+0x4c` bit 15, `+0x4e` read (`0x155e18..0x155e4a`) |
+| `0x40340c80` | `0x200` | — | `0x400fc058` | not read by the image |
 | `0x40340e80` | `0x200` | 32 × 16? | `0x400f1174 + 8` | not read by the image |
 | `0x40341080` | `0x200` | 32 × 16? | `0x400f1174 + 0x10` | not read by the image |
 | `0x40341280` | `0x200` | 32 × 16? | `0x400fc058 - 0x18` | not read by the image |
