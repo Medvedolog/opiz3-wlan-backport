@@ -66,7 +66,7 @@ What sets it apart from earlier builds:
 | SDIO bring-up, firmware download, `wlan0` / `phy0` | Works |
 | 2.4 GHz AP, HT20 | Works |
 | 5 GHz AP, ch36 | Works; the firmware transmits at 80 MHz even when the host configures 20 MHz (see [Performance](#performance)) |
-| Client (STA) mode | Not yet tested in this project |
+| Client (STA) mode | Not yet tested in this project; planned ([test plan](docs/TEST-PLAN.md), S1–S6) |
 | Associated clients in `iw station dump` / LuCI | MAC list works |
 | Per-client RX/TX bytes and packets | Built (270, awaits hardware check). TX counts what was queued to the firmware, not what the client acknowledged |
 | Per-client TX bitrate | Experimental: `cp_txrate=1` in `/etc/uwe5622.options` (240), read from the firmware rate-control table; the decoding matches hardware dumps |
@@ -356,7 +356,8 @@ with the Wi-Fi keys masked. Attach it to an issue.
 
 | Document | Contents |
 |---|---|
-| [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Firmware reverse engineering, revisions 1–3 (§1–§55) |
+| [TEST-PLAN.md](docs/TEST-PLAN.md) | Hardware checks before a release, with commands; client (STA) mode |
+| [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Firmware reverse engineering, revisions 1–4 (§1–§60) |
 | [NEW-DRIVER-ARCHITECTURE.md](docs/NEW-DRIVER-ARCHITECTURE.md) | New driver design, SDIO/command protocol map, milestones |
 | [UWE5622-DRIVER-AUDIT.md](docs/UWE5622-DRIVER-AUDIT.md) | Audit of the vendor driver and the fix plan |
 | [TECHNICAL-SPEC.md](docs/TECHNICAL-SPEC.md) | Requirements, acceptance tests, CI and package policy |
