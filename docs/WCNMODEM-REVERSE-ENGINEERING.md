@@ -2345,3 +2345,41 @@ Open questions:
 
 Until resolved, the documented default "20 MHz" describes the host
 configuration only.
+
+## 58. The RX descriptor gap is the 802.11 header: no per-frame RSSI on SDIO (2026-10-06)
+
+Patch 210 (`rx_desc_dump`) on hardware, iperf3 from the phone (LUT 6), near
+(−25 dBm) and far (−70 dBm). `sizeof(rx_msdu_desc)` = 28, `msdu_offset`
+38..78.
+
+Near, one sample (descriptor | gap):
+
+```
+134eea05f8c3314000011335003d90956c7905000000000200000000 |
+8841 5000 1c792d6e5c6d 76858355685e 1c792d6e5c6d 9095 8000 0000000000000000 6c790020
+```
+
+Far:
+
+```
+133e420008a2324003013337002d40e2479e06000000000200000000 |
+8841 3000 1c792d6e5c6d 76858355685e 020001de7788 40e2 0000 0000000000000000 479e
+```
+
+- All 28 descriptor bytes map onto `struct rx_msdu_desc` (rx_msg.h): header
+  word (type, ctx, offset, length), buffer address, MSDU/MPDU flags and LUT
+  index, MAC-header flags + TID + sequence number, PN low/high + cipher,
+  `rsvd5` = 0. Near/far differences are flags (first/last MSDU, A-MSDU),
+  sequence numbers and PN only.
+- The gap between the descriptor and the payload is the received **802.11
+  MAC header**: frame control `0x4188` (QoS data, ToDS, protected),
+  duration, addr1 = AP, addr2 = client, addr3, sequence control, QoS control
+  (A-MSDU bit set in the near case), then PN bytes.
+- Nothing in descriptor or gap follows the signal. The only value that
+  moves with distance is the Duration field (0x50 near, 0x2c..0x30 far), a
+  function of the rate, not of the signal.
+
+Confirms §52: the SDIO RX path carries no per-frame RSSI. Per-client
+signal, if anywhere, is in CP memory outside the station table (§56.1):
+next step is a bulk read of the firmware data area near/far (patch 260).
+
