@@ -2481,3 +2481,15 @@ actually reads for bandwidth.
 So the only working recovery on the Zero 3 is the host reset (wifi-pwrseq
 toggles PG18). From r16 `uwe5622-recover` does that directly; the driver
 reload step, which cost ~60 s and a card dump, is gone.
+
+## 62. VHT80 configured on the host: host and firmware agree (2026-10-06, r15)
+
+With `max_bw_5g=80` and htmode VHT80 on channel 36 (`iwinfo`: HT Mode VHT80,
+center channel 42) the per-client TX rate read from the firmware (patch 240)
+stays at VHT-MCS 9, 80 MHz, short GI, 1 stream (433.3 Mbit/s) for two
+clients; 1 h 14 min with moderate traffic, no assert, SoC ~54 °C. With
+`max_bw_5g=20` the firmware also used 80 MHz with the same clients (§57,
+§60), so the only change is that the host configuration now says what the
+air does. `max_bw_5g` defaults to 80 from r17. Open: whether the firmware
+honours a host width *below* what the client supports (the §60 matrix
+row 20/VHT20 says no).

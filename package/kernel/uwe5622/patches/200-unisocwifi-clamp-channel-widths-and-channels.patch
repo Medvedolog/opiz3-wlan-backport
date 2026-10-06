@@ -11,7 +11,7 @@ applied and before wiphy_register(), so the limits become orig_flags and
 survive later regulatory updates:
 
   max_bw_2g=20|40      2.4 GHz width, default 20
-  max_bw_5g=20|40|80   5 GHz width, default 20
+  max_bw_5g=20|40|80   5 GHz width, default 80
   allow_dfs=0|1        DFS channels 52-144, default hidden (no radar
                        detection in this driver)
 
@@ -41,9 +41,9 @@ The defaults cover only what has been verified on hardware (HT20 on
 +module_param(max_bw_2g, uint, 0444);
 +MODULE_PARM_DESC(max_bw_2g, "Max channel width on 2.4 GHz in MHz: 20 or 40 (default 20)");
 +
-+static unsigned int max_bw_5g = 20;
++static unsigned int max_bw_5g = 80;
 +module_param(max_bw_5g, uint, 0444);
-+MODULE_PARM_DESC(max_bw_5g, "Max channel width on 5 GHz in MHz: 20, 40 or 80 (default 20)");
++MODULE_PARM_DESC(max_bw_5g, "Max channel width on 5 GHz in MHz: 20, 40 or 80 (default 80)");
 +
 +static bool allow_dfs;
 +module_param(allow_dfs, bool, 0444);

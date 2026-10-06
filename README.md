@@ -65,7 +65,7 @@ What sets it apart from earlier builds:
 |---|---|
 | SDIO bring-up, firmware download, `wlan0` / `phy0` | Works |
 | 2.4 GHz AP, HT20 | Works |
-| 5 GHz AP, ch36 | Works; the firmware transmits at 80 MHz even when the host configures 20 MHz (see [Performance](#performance)) |
+| 5 GHz AP, ch36 | Works. VHT80 is the default from r17 (`max_bw_5g=80`): 1 h 14 min, two clients at VHT-MCS 9 / 433 Mbit/s, no firmware assert (r15 + `max_bw_5g=80`, moderate load). The firmware used 80 MHz with VHT clients even when the host configured 20 MHz (see [Performance](#performance)) |
 | Client (STA) mode | Not yet tested in this project; planned ([test plan](docs/TEST-PLAN.md), S1–S6) |
 | Associated clients in `iw station dump` / LuCI | MAC list works |
 | Per-client RX/TX bytes and packets | Built (270, awaits hardware check). TX counts what was queued to the firmware, not what the client acknowledged |
@@ -248,7 +248,7 @@ The firmware findings explain three long-standing problems:
    - Patches 240–280 (`cp_txrate=1` against what the phone reports).
    - Crash recovery (driver reload, then SDIO host reset).
    - The channel clamp.
-   - VHT80 under sustained load (iperf3 over 12+ hours).
+   - VHT80 under heavy sustained load (iperf3 over 12+ hours); 1 h of moderate load passed.
 2. **Per-client RSSI and rate.**
    - TX rate: confirm `cp_txrate=1` against the phone's link rate, then make
      it the default.
@@ -286,7 +286,7 @@ Applied on top of `armbian/uwe5622@cc2835a` in
 | 170 | Log the channel IEs of `START_AP` |
 | 180 | DS Parameter Set IE for 5 GHz `START_AP` (after DeepAQ) |
 | 190 | Fix an out-of-bounds write of per-TID ADDBA timestamps |
-| 200 | Advertise only verified widths and channels (`max_bw_2g`, `max_bw_5g`, `allow_dfs`) |
+| 200 | Advertise only verified widths and channels (`max_bw_2g` default 20, `max_bw_5g` default 80, `allow_dfs`) |
 | 210 | `rx_desc_dump` debugfs (RX descriptor survey) |
 | 220 | Release the card reference on the `dt_rw_fail` early return |
 | 230 | `cp_sta_table` debugfs: firmware per-station rate/RSSI state |
