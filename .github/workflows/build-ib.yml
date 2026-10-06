@@ -19,7 +19,6 @@ name: Build image (official ImageBuilder + own apk repo)
 on:
   push:
     branches:
-      - ci/uwe5622-build20-control
       - main
     paths:
       - 'package/**'
