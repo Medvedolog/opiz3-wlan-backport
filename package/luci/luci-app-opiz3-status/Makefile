@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 # set explicitly: luci.mk takes the version from git, and the package is
 # built from a copy without one
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 LUCI_TITLE:=Orange Pi Zero 3 board status (temperature, Wi-Fi driver)
 LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode

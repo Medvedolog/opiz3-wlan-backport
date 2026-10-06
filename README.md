@@ -68,8 +68,11 @@ What sets it apart from earlier builds:
 | 5 GHz AP, ch36 | Works; the firmware transmits at 80 MHz even when the host configures 20 MHz (see [Performance](#performance)) |
 | Client (STA) mode | Not yet tested in this project |
 | Associated clients in `iw station dump` / LuCI | MAC list works |
-| Per-client RSSI / rate in LuCI | Not available: the firmware does not export them in AP mode (see below) |
-| Driver name in LuCI | Built: "Unisoc UWE5622" instead of "Generic" (awaits hardware check) |
+| Per-client RX/TX bytes and packets | Built (270, awaits hardware check). TX counts what was queued to the firmware, not what the client acknowledged |
+| Per-client TX bitrate | Experimental: `cp_txrate=1` in `/etc/uwe5622.options` (240), read from the firmware rate-control table; the decoding matches hardware dumps |
+| Per-client RSSI (live) | Not available: not in any host event or RX descriptor; searched for in firmware memory (`cp_mem`, 260) |
+| Per-client RX bitrate | Not available |
+| Driver name in LuCI | Works: "Unisoc UWE5622" instead of "Generic" (iwinfo patch); `iwinfo` CLI fix built (awaits hardware check) |
 | Power save | Off by default; a bug that silently ignored the option is fixed |
 | Crash recovery after a firmware assert | Built (awaits hardware check) |
 | Unsupported widths/channels blocked | Built (awaits hardware check) |
@@ -242,9 +245,9 @@ The firmware findings explain three long-standing problems:
    - The channel clamp.
    - VHT80 under sustained load (iperf3 over 12+ hours).
 2. **Per-client RSSI and rate.**
-   - Compare `cp_sta_table` with what the clients report.
-   - If it matches, feed it into `get_station`, so LuCI shows real per-client
-     values.
+   - TX rate: confirm `cp_txrate=1` against the phone's link rate, then make
+     it the default.
+   - RSSI: diff firmware memory near/far/near (`scripts/cp-mem-diff.sh`).
 3. **Power save.** Find which transition (firmware PS, WCN sleep, SDIO wake)
    loses multicast or stalls, before enabling it again.
 4. **Normal autoload.** Find why the SDIO probe can hang at boot, so the
@@ -286,7 +289,7 @@ Applied on top of `armbian/uwe5622@cc2835a` in
 | 250 | BSP: unregister the SDIO driver on Allwinner, so a driver reload works (no `-EBUSY`) |
 | 260 | `cp_mem` debugfs: read-only dump of the firmware data area (RE) |
 | 270 | Per-client bytes and packets (host counters) |
-| 280 | Quiet `wifi up`: antenna/TX power/distance calls accepted instead of `-95`/`-12`; phy MAC (no `00:00:00…`); TCP/UDP checksum features without the "mixed HW and IP checksum" warning |
+| 280 | Quiet `wifi up`: antenna and TX power "auto" accepted instead of `-95`, distance no longer sent to the firmware as an empty `SET_PARAM` (a possible source of `-12` on a healthy chip; a `-12` after a firmware assert is a dead chip and is not affected); phy MAC (no `00:00:00…`); TCP/UDP checksum features without the "mixed HW and IP checksum" warning |
 
 Further pieces:
 

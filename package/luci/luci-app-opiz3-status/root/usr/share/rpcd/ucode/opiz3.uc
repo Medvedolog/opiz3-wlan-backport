@@ -38,12 +38,22 @@ function cpu() {
 	};
 }
 
+// the mmc host of the module: the one with an mmc-pwrseq in its device tree
+// node (the SD card slot has none), as uwe_mmc_host in /lib/uwe5622.sh
+function sdio_host() {
+	for (let h in sort(lsdir('/sys/class/mmc_host') ?? []))
+		if (stat(`/sys/class/mmc_host/${h}/device/of_node/mmc-pwrseq`))
+			return h;
+	return 'mmc1';
+}
+
 function sdio() {
 	// "clock: 50000000 Hz", "timing spec: 2 (sd high-speed)", "bus width: 2 (4 bits)"
-	let ios = readfile('/sys/kernel/debug/mmc1/ios');
+	let host = sdio_host();
+	let ios = readfile(`/sys/kernel/debug/${host}/ios`);
 	if (ios == null)
 		return null;
-	let r = {};
+	let r = { host: host };
 	let m = match(ios, /actual clock:[ \t]*([0-9]+) Hz/) ?? match(ios, /clock:[ \t]*([0-9]+) Hz/);
 	if (m) r.clock = +m[1];
 	m = match(ios, /timing spec:[ \t]*[0-9]+ \(([^)]*)\)/);
