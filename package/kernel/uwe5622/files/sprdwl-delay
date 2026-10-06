@@ -20,6 +20,9 @@ start_service() {
 	# membuang broadcast/multicast; untuk AP/router stabilitas ARP, IPv6 ND
 	# dan mDNS lebih penting daripada penghematan a few десятых ватта.
 	#
+	# The radio is found by its device path, not as phy0/radio0
+	# (/lib/uwe5622.sh): a USB adapter present at boot registers first.
+	#
 	# insmod, not modprobe: ubox modprobe takes module names only and drops
 	# any "param=value" argument (parameters come from /etc/modules.conf),
 	# so "modprobe sprdwl_ng disable_powersave=1" never set the parameter.
@@ -35,19 +38,16 @@ start_service() {
 
 	procd_open_instance
 	procd_set_param command /bin/sh -c \
-		'sleep 15; \
+		'. /lib/uwe5622.sh; \
+		 sleep 15; \
 		 /sbin/modprobe uwe5622_bsp_sdio || exit 1; \
 		 sleep 5; \
-		 if [ ! -d /sys/module/sprdwl_ng ]; then \
-		   opts=$(sed "s/#.*//" /etc/uwe5622.options 2>/dev/null | xargs); \
-		   /sbin/insmod sprdwl_ng disable_powersave=1 $opts || exit 1; \
-		 fi; \
-		 i=0; while [ ! -e /sys/class/ieee80211/phy0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done; \
-		 [ -e /sys/class/ieee80211/phy0 ] || exit 1; \
-		 uci -q show wireless | grep -q "path=.platform/unisoc_wifi" || /sbin/wifi config; \
+		 [ -d /sys/module/sprdwl_ng ] || uwe_load_wifi || exit 1; \
+		 uwe_wait_phy 30 >/dev/null || exit 1; \
+		 [ -n "$(uwe_radios)" ] || /sbin/wifi config; \
 		 /usr/sbin/uwe5622-clamp-htmode; \
 		 rm -f /tmp/luci-indexcache*; \
-		 /sbin/wifi up radio0'
+		 uwe_wifi up'
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_close_instance

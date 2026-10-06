@@ -12,7 +12,7 @@ What sets it apart from earlier builds:
   The driver and the few other packages OpenWrt does not ship come from our
   own signed apk repository.
 - **The driver is fixed, not just compiled.** The vendor driver is hardened
-  against the crashes found so far (20 patches, 010–230). It reports only
+  against the crashes found so far (25 patches, 010–280). It reports only
   numbers that are actually measured, and it refuses settings that crash
   the firmware.
 - **The firmware is understood.** The Wi-Fi firmware was reverse engineered
@@ -20,8 +20,10 @@ What sets it apart from earlier builds:
   [docs/](docs/).
 
 > Status: **beta.** 2.4 GHz and 5 GHz AP mode (including VHT80) is verified on
-> a Zero 3. The newest fixes (patches 190–230, crash recovery, the channel
-> clamp) are built and checked in CI but still await hardware confirmation.
+> a Zero 3 (about 160 Mbit/s with iperf3, the "Unisoc UWE5622" name in LuCI,
+> the client list). The newest pieces (240–280: per-client TX rate, crash
+> recovery with SDIO host reset, the board status panel) are built and
+> checked in CI but still await hardware confirmation.
 > See [Status](#status).
 
 ## Кратко по-русски
@@ -107,7 +109,7 @@ specifications, not verified here):
 
 What carries over to any of them:
 
-- the driver patches (010–260) and the packages in the apk repository,
+- the driver patches (010–280) and the packages in the apk repository,
   which are built for `sunxi/cortexa53` (H6, H616, H618);
 - the firmware analysis in [docs/](docs/): `wcnmodem.bin` is the same file;
 - patch 250 (SDIO driver re-registration) on every Allwinner board.
@@ -206,7 +208,7 @@ the firmware's behaviour stayed as they were.
 |---|---|---|
 | OpenWrt | 24.10 / 25.12.0, custom kernel | 25.12.5, **official kernel** |
 | Official kmods via `apk` | No (kernel ABI differs) | **Yes** |
-| Driver base | Older vendor source | Current Armbian `cc2835a` + 20 patches |
+| Driver base | Older vendor source | Current Armbian `cc2835a` + 25 patches |
 | 5 GHz AP | Via DeepAQ's DS IE fix | Same fix, root cause found in the firmware |
 | Memory safety | Vendor code as is | Fixed: ADDBA array overflow (190), sleeping allocation in atomic context (130), ADDBA/queue race (160), leaked card reference (220), stack VLAs (070) |
 | Client list in LuCI | No `dump_station` in the vendor driver | Implemented (060) |
@@ -235,10 +237,9 @@ The firmware findings explain three long-standing problems:
 ## What we are still working on
 
 1. **Hardware confirmation of the latest series.**
-   - Patches 190–230.
-   - Crash recovery.
+   - Patches 240–280 (`cp_txrate=1` against what the phone reports).
+   - Crash recovery (driver reload, then SDIO host reset).
    - The channel clamp.
-   - The "Unisoc UWE5622" name in LuCI.
    - VHT80 under sustained load (iperf3 over 12+ hours).
 2. **Per-client RSSI and rate.**
    - Compare `cp_sta_table` with what the clients report.

@@ -1,16 +1,19 @@
 #!/bin/sh
-# Narrow wireless.radio0.htmode to the width the sprdwl_ng driver
+# Narrow the onboard radio's htmode to the width the sprdwl_ng driver
 # advertises (module parameters max_bw_2g / max_bw_5g, see
 # /etc/uwe5622.options). LuCI still lists VHT40/VHT80 because iwinfo
 # derives them from the VHT capability alone, and hostapd fails to start
 # on a width cfg80211 refuses, so fix the config instead of leaving the
 # AP down. Called by /etc/init.d/sprdwl-delay before "wifi up".
 
+. /lib/uwe5622.sh
+
 P=/sys/module/sprdwl_ng/parameters
 max2=$(cat "$P/max_bw_2g" 2>/dev/null || echo 20)
 max5=$(cat "$P/max_bw_5g" 2>/dev/null || echo 20)
 
-for radio in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+# only the UWE5622: other radios (USB adapters) have their own limits
+for radio in $(uwe_radios); do
 	ht=$(uci -q get "wireless.$radio.htmode") || continue
 	band=$(uci -q get "wireless.$radio.band")
 	case "$band" in
