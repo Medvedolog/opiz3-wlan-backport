@@ -1,4 +1,4 @@
-# Orange Pi Zero 3: onboard Wi-Fi (AW859A / UWE5622) on OpenWrt 25.12
+# Orange Pi Zero 3 (and Zero 2): onboard Wi-Fi (AW859A / UWE5622) on OpenWrt 25.12
 
 The Orange Pi Zero 3 has an onboard AW859A module (UNISOC UWE5622, SDIO).
 Mainline Linux has no driver for it and OpenWrt does not support it. This
@@ -45,6 +45,7 @@ What sets it apart from earlier builds:
 ## Contents
 
 - [Status](#status)
+- [Boards](#boards)
 - [Performance](#performance)
 - [Download](#download)
 - [Background: earlier attempts](#background-earlier-attempts)
@@ -87,6 +88,33 @@ The driver advertises only these widths and channels, and
 `uwe5622-clamp-htmode` lowers `htmode` in the wireless config to match.
 Without this, a setting the firmware cannot handle makes it assert, and
 Wi-Fi is gone until a reboot.
+
+## Boards
+
+| Board | SoC | Image | State |
+|---|---|---|---|
+| Orange Pi Zero 3 | H618 | `xunlong_orangepi-zero3` | **Tested** on hardware |
+| Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Built, untested: testers wanted.** Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900 |
+
+Other boards that carry the AW859A / UWE5622 module (per vendor
+specifications, not verified here):
+
+- **Orange Pi Zero 2W** (H618): in OpenWrt as `xunlong_orangepi-zero2w`;
+  needs its own Wi-Fi device-tree nodes.
+- **Orange Pi 3 LTS** (H6): the board the original OpenWrt package was
+  written for; OpenWrt has no separate 3 LTS profile.
+- Other boards and TV boxes with this module.
+
+What carries over to any of them:
+
+- the driver patches (010–260) and the packages in the apk repository,
+  which are built for `sunxi/cortexa53` (H6, H616, H618);
+- the firmware analysis in [docs/](docs/): `wcnmodem.bin` is the same file;
+- patch 250 (SDIO driver re-registration) on every Allwinner board.
+
+Per board, what is needed: the Wi-Fi nodes in the device tree (SDIO
+controller, power rails, reset GPIO), an image profile in CI, and a test on
+hardware. Reports with `scripts/collect-debug.sh` output are welcome.
 
 ## Performance
 

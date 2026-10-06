@@ -47,6 +47,11 @@ env:
   SUBTARGET: cortexa53
   ARCH: aarch64_cortex-a53
   PROFILE: xunlong_orangepi-zero3
+  # board name, ImageBuilder profile, DTB; Zero 2 shares the Wi-Fi wiring of
+  # the Zero 3 (sun50i-h616-orangepi-zero.dtsi, PG18 reset) but is untested
+  BOARDS: >-
+    zero3:xunlong_orangepi-zero3:sun50i-h618-orangepi-zero3
+    zero2:xunlong_orangepi-zero2:sun50i-h616-orangepi-zero2
   SDK_SUFFIX: sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64
   FOOTSTRAP_TAG: v0.14.13
   FOOTSTRAP_VERSION: 0.14.13
@@ -360,23 +365,28 @@ jobs:
           mv "$IB" ib
           echo "IB_NAME=$IB" >> "$GITHUB_ENV"
 
-      - name: Add Wi-Fi to the Zero 3 DTB
+      - name: Add Wi-Fi to the board DTBs
         working-directory: ib
         run: |
-          DTB=$(find build_dir -path '*/arch/arm64/boot/dts/allwinner/sun50i-h618-orangepi-zero3.dtb' | head -1)
-          test -n "$DTB"
-          python3 ../scripts/zero3-dtb-add-wifi.py "$DTB" /tmp/zero3.dtb
-          cp /tmp/zero3.dtb "$DTB"
-          test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
-          # the IB has no rule to rebuild the kernel, so put the DTB into
-          # its prebuilt FIT kernel image directly
-          FIT=$(find build_dir -maxdepth 3 -name 'xunlong_orangepi-zero3-kernel.bin' | head -1)
-          test -n "$FIT"
-          python3 ../scripts/fit-replace-dtb.py "$FIT" /tmp/zero3.dtb /tmp/fit.itb
-          mv /tmp/fit.itb "$FIT"
-          dumpimage -l "$FIT"
-          dumpimage -T flat_dt -p 1 -o /tmp/fit-fdt.dtb "$FIT"
-          cmp /tmp/fit-fdt.dtb /tmp/zero3.dtb
+          for b in $BOARDS; do
+            name=$(echo "$b" | cut -d: -f1)
+            profile=$(echo "$b" | cut -d: -f2)
+            dts=$(echo "$b" | cut -d: -f3)
+            echo "== $name ($profile, $dts)"
+            DTB=$(find build_dir -path "*/arch/arm64/boot/dts/allwinner/$dts.dtb" | head -1)
+            test -n "$DTB"
+            python3 ../scripts/zero3-dtb-add-wifi.py "$DTB" "/tmp/$name.dtb"
+            cp "/tmp/$name.dtb" "$DTB"
+            test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
+            # the IB has no rule to rebuild the kernel, so put the DTB into
+            # its prebuilt FIT kernel image directly
+            FIT=$(find build_dir -maxdepth 3 -name "$profile-kernel.bin" | head -1)
+            test -n "$FIT"
+            python3 ../scripts/fit-replace-dtb.py "$FIT" "/tmp/$name.dtb" /tmp/fit.itb
+            mv /tmp/fit.itb "$FIT"
+            dumpimage -T flat_dt -p 1 -o /tmp/fit-fdt.dtb "$FIT"
+            cmp /tmp/fit-fdt.dtb "/tmp/$name.dtb"
+          done
 
       - name: Our repository and key
         working-directory: ib
@@ -432,16 +442,24 @@ jobs:
             luci-proto-qmi luci-proto-mbim luci-proto-ncm luci-proto-modemmanager
             usbutils pciutils picocom coreutils coreutils-timeout coreutils-stty
             ethtool ip-full ip-bridge tcpdump lsof strace ppp chat iperf3 htop"
-          make image PROFILE="$PROFILE" PACKAGES="$(echo $PACKAGES)" \
-            FILES=files ROOTFS_PARTSIZE=512
+          for b in $BOARDS; do
+            profile=$(echo "$b" | cut -d: -f2)
+            echo "::group::$profile"
+            make image PROFILE="$profile" PACKAGES="$(echo $PACKAGES)" \
+              FILES=files ROOTFS_PARTSIZE=512
+            echo "::endgroup::"
+          done
 
       - name: Validate image
         working-directory: ib
         run: |
           OUT=bin/targets/$TARGET/$SUBTARGET
           ls -lh "$OUT"
-          IMG=$(ls "$OUT"/*orangepi-zero3*sdcard.img.gz | head -1)
-          MAN=$(ls "$OUT"/*orangepi-zero3*.manifest | head -1)
+          for b in $BOARDS; do
+          name=$(echo "$b" | cut -d: -f1)
+          echo "######## orangepi-$name"
+          IMG=$(ls "$OUT"/*orangepi-$name-*sdcard.img.gz | head -1)
+          MAN=$(ls "$OUT"/*orangepi-$name.manifest | head -1)
 
           echo "== packages =="
           for p in kmod-uwe5622 uwe5622-firmware kmod-amneziawg luci-theme-footstrap \
@@ -455,6 +473,7 @@ jobs:
           gunzip -c "$IMG" > /tmp/img
           START=$(sfdisk -J /tmp/img | python3 -c \
             'import json,sys; print(json.load(sys.stdin)["partitiontable"]["partitions"][0]["start"])')
+          rm -f /tmp/uImage
           mcopy -i "/tmp/img@@$((START * 512))" ::uImage /tmp/uImage
           # a FIT image is itself a flattened device tree
           FDT=$(fdtget -l /tmp/uImage /images | grep '^fdt' | head -1)
@@ -462,9 +481,12 @@ jobs:
           fdtget -t bx /tmp/uImage "/images/$FDT" data | python3 -c \
             'import sys; sys.stdout.buffer.write(bytes(int(b, 16) for b in sys.stdin.read().split()))' \
             > /tmp/fit.dtb
+          fdtget /tmp/fit.dtb / compatible
           test "$(fdtget /tmp/fit.dtb /soc/mmc@4021000 status)" = okay
           fdtget -l /tmp/fit.dtb / | grep -q wifi-pwrseq
           echo "  OK      mmc1 okay, wifi-pwrseq present"
+          done
+          MAN=$(ls "$OUT"/*orangepi-zero3.manifest | head -1)
 
           echo "== rootfs =="
           ROOT=$(find build_dir -maxdepth 2 -type d -name 'root-*' | head -1)
@@ -489,6 +511,15 @@ jobs:
           if-no-files-found: error
           path: |
             ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero3*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz2-image-${{ env.RELEASE }}
+          if-no-files-found: error
+          path: |
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2-*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2.*
             ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
 
       - name: Package ImageBuilder
@@ -575,16 +606,25 @@ jobs:
           Extra packages (UWE5622 driver, AmneziaWG, Footstrap, iwinfo) come from https://$OWNER.github.io/$REPO/ ,
           which the image already trusts.
 
-          The ImageBuilder archive already carries the Wi-Fi DTB, these packages, the signing key and the repository:
+          Images:
+          - Orange Pi Zero 3 (xunlong_orangepi-zero3): tested on hardware.
+          - Orange Pi Zero 2 (xunlong_orangepi-zero2): UNTESTED, testers wanted. Same Wi-Fi module and
+            wiring as the Zero 3 (shared device tree include, PG18 reset); please report whether
+            phy0 appears and an AP starts (scripts/collect-debug.sh).
 
-              make image PROFILE=$PROFILE PACKAGES="kmod-uwe5622 uwe5622-firmware wpad-basic-mbedtls luci ..."
+          The ImageBuilder archive already carries the Wi-Fi DTBs of both boards, these packages,
+          the signing key and the repository:
+
+              make image PROFILE=xunlong_orangepi-zero3 PACKAGES="kmod-uwe5622 uwe5622-firmware wpad-basic-mbedtls luci ..."
 
           Built from ${GITHUB_SHA}.
           EOF
           gh release delete "$TAG" --cleanup-tag -y -R "$GITHUB_REPOSITORY" || true
           gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease \
             --target "$GITHUB_SHA" \
-            --title "Orange Pi Zero 3 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}" \
+            --title "Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}" \
             --notes-file notes.md \
             art/opiz3-image-$RELEASE/* \
+            art/opiz2-image-$RELEASE/*.gz \
+            art/opiz2-image-$RELEASE/*.manifest \
             art/opiz3-imagebuilder-$RELEASE/*
