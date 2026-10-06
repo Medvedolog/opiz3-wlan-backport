@@ -19,11 +19,11 @@ What sets it apart from earlier builds:
   far enough to explain its failures. All findings are published in
   [docs/](docs/).
 
-> Status: **beta.** 2.4 GHz and 5 GHz AP mode (including VHT80) is verified on
-> a Zero 3 (about 160 Mbit/s with iperf3, the "Unisoc UWE5622" name in LuCI,
-> the client list). The newest pieces (240–280: per-client TX rate, crash
-> recovery with SDIO host reset, the board status panel) are built and
-> checked in CI but still await hardware confirmation.
+> Status: **beta 1** ([release](https://github.com/croissantpie12/opiz3-wlan-backport/releases/tag/opiz3-25.12.5-beta1)).
+> Verified on a Zero 3: 5 GHz VHT80 and 2.4 GHz AP, client mode on 2.4 GHz,
+> LTE uplink, per-client traffic and TX rate, firmware recovery in ~14 s.
+> Not yet: AP and client at the same time, per-client signal (the firmware
+> does not report it), Zero 2 (untested).
 > See [Status](#status).
 
 ## Кратко по-русски
@@ -61,38 +61,45 @@ What sets it apart from earlier builds:
 
 ## Status
 
+Hardware results of 2026-10-06 (Zero 3, r15 image + r16/r17 fixes), see
+[docs/TEST-PLAN.md](docs/TEST-PLAN.md) for the commands:
+
 | Area | State |
 |---|---|
-| SDIO bring-up, firmware download, `wlan0` / `phy0` | Works |
-| 2.4 GHz AP, HT20 | Works |
-| 5 GHz AP, ch36 | Works; the firmware transmits at 80 MHz even when the host configures 20 MHz (see [Performance](#performance)) |
-| Client (STA) mode | Not yet tested in this project; planned ([test plan](docs/TEST-PLAN.md), S1–S6) |
-| Associated clients in `iw station dump` / LuCI | MAC list works |
-| Per-client RX/TX bytes and packets | Built (270, awaits hardware check). TX counts what was queued to the firmware, not what the client acknowledged |
-| Per-client TX bitrate | Experimental: `cp_txrate=1` in `/etc/uwe5622.options` (240), read from the firmware rate-control table; the decoding matches hardware dumps |
-| Per-client RSSI (live) | Not available: not in any host event or RX descriptor; searched for in firmware memory (`cp_mem`, 260) |
-| Per-client RX bitrate | Not available |
-| Driver name in LuCI | Works: "Unisoc UWE5622" instead of "Generic" (iwinfo patch); `iwinfo` CLI fix built (awaits hardware check) |
-| Power save | Off by default; a bug that silently ignored the option is fixed |
-| Crash recovery after a firmware assert | Built (awaits hardware check) |
-| Unsupported widths/channels blocked | Built (awaits hardware check) |
-| DFS channels (52–144) | Blocked by default |
-| 160 MHz, ch 34, ch 184+ | Blocked |
+| SDIO bring-up, firmware download | Works (SDIO 50 MHz, 4-bit; firmware MARLIN3_19B_W21.05.3) |
+| 5 GHz AP, ch36 VHT80 | **Works, default from r17.** 1 h 14 min, two clients at VHT-MCS 9 / 433 Mbit/s, no firmware assert |
+| 2.4 GHz AP, HT20 | Works (phone online through the board) |
+| Client (STA) mode | **Works on 2.4 GHz** (phone hotspot): connect, DHCP, internet, reconnect after the uplink returns (~35 s), signal and rate reported |
+| AP + client at the same time (repeater) | **Not working.** Both interfaces get the same MAC (the driver ignores a MAC change in AP mode); clients see the AP but cannot join. Planned for beta 2 |
+| LTE modem as uplink, Wi-Fi for clients | Works (QMI modem, ModemManager). The image puts `modem` and `wwan` into the wan zone |
+| Client list, per-client bytes/packets | Works (patch 270). TX counts what was queued to the firmware |
+| Per-client TX bitrate | Works with `cp_txrate=1` (patch 240): live rate, e.g. 433.3 Mbit/s VHT-MCS 9 80 MHz, changing with conditions. Off by default |
+| Per-client RSSI, RX bitrate (AP mode) | Not available: the firmware does not report them (RE §37–§43, §52, §58) |
+| TX power | Not reported: no firmware command to read it (RE §59) |
+| `wifi up` log | Clean: no `-95`/`-12`, real phy MAC (patch 280) |
+| Driver name | "Unisoc UWE5622" in LuCI and the `iwinfo` CLI |
+| Firmware recovery | Works: `uwe5622-recover` brings Wi-Fi back in ~14 s (SDIO host reset; RE §61) |
+| Width chosen in LuCI | Clamped to what the driver allows on every Save & Apply (r17) |
+| Scan while the AP runs | Works, no client drop |
+| Board panel, CPU frequency page | Work (`luci-app-opiz3-status`) |
+| DFS channels (52–144), 160 MHz, 40 MHz on 2.4 GHz | Blocked (untested; unverified settings made the firmware assert, RE §45) |
 | Autoload at boot | Delayed load after the network is up, so a stuck SDIO probe cannot block Ethernet ([roadmap](#what-we-are-still-working-on), item 4) |
+| Orange Pi Zero 2 | Built, untested |
 
-Defaults are deliberately conservative: 20 MHz on both bands, no DFS. They
-are module parameters in `/etc/uwe5622.options`:
+Module parameters in `/etc/uwe5622.options`:
 
 ```
-max_bw_2g=20      # 20 or 40
-max_bw_5g=20      # 20, 40 or 80 (80 verified to start)
+max_bw_2g=20      # 20 or 40 (40 untested)
+max_bw_5g=80      # 20, 40 or 80 (default 80 from r17)
 allow_dfs=0
+cp_txrate=0       # 1: per-client TX rate from the firmware
 ```
 
 The driver advertises only these widths and channels, and
-`uwe5622-clamp-htmode` lowers `htmode` in the wireless config to match.
-Without this, a setting the firmware cannot handle makes it assert, and
-Wi-Fi is gone until a reboot.
+`uwe5622-clamp-htmode` lowers `htmode` in the wireless config to match, at
+boot and after every wireless config change. Without this, a setting the
+firmware cannot handle either keeps hostapd from starting or makes the
+firmware assert.
 
 ## Boards
 
@@ -148,6 +155,10 @@ Each build produces:
 
 - **Image** (`opiz3-image-25.12.5`): squashfs and ext4 SD-card images.
   Flash them like any OpenWrt sunxi image.
+  As in stock OpenWrt, the Wi-Fi network is **off after flashing** (open,
+  `disabled=1`): set an SSID and a WPA2 key in LuCI → Network → Wireless and
+  enable it. Also set a root password (`passwd` or LuCI → System →
+  Administration).
 - **ImageBuilder** (`opiz3-imagebuilder-25.12.5`): the official ImageBuilder
   with the Wi-Fi device tree already in the kernel, our packages, the key and
   the repository. Build your own package set with it:
@@ -220,7 +231,7 @@ the firmware's behaviour stayed as they were.
 | Firmware crash | Vendor driver does not recover: Wi-Fi dead until reboot | Automatic driver reload, rate-limited (`uwe5622-recover`) |
 | Name in LuCI | "Generic" | "Unisoc UWE5622" (iwinfo patch; also in the `iwinfo` CLI) |
 | Board status | None | LuCI Overview panel: SoC temperatures, CPU frequency, Wi-Fi driver state and firmware, host vs firmware channel width, SDIO bus clock, firmware recoveries (`luci-app-opiz3-status`) |
-| CPU frequency | Kernel default "performance" (always 1512 MHz) | `ondemand` by default; governor and min/max in LuCI System → CPU frequency (`/etc/config/opiz3`). No overclocking: the table stops at the SoC's 1512 MHz / 1.10 V, and Wi-Fi is limited by SDIO, not the CPU |
+| CPU frequency | Kernel default "performance" (always the top frequency, 1416 or 1512 MHz depending on the chip's speed bin) | `ondemand` by default; governor and min/max in LuCI System → CPU frequency (`/etc/config/opiz3`). No overclocking: the table stops at the SoC's 1512 MHz / 1.10 V (1416 MHz on some chips, read from the eFuse speed bin), and Wi-Fi is limited by SDIO, not the CPU |
 | Firmware internals | Unknown | Reverse engineered, published ([notes](docs/WCNMODEM-REVERSE-ENGINEERING.md)) |
 | Build | Manual steps | CI: SDK + ImageBuilder, signed repo, image checks |
 
@@ -244,7 +255,7 @@ The firmware findings explain three long-standing problems:
    - Patches 240–280 (`cp_txrate=1` against what the phone reports).
    - Crash recovery (driver reload, then SDIO host reset).
    - The channel clamp.
-   - VHT80 under sustained load (iperf3 over 12+ hours).
+   - VHT80 under heavy sustained load (iperf3 over 12+ hours); 1 h of moderate load passed.
 2. **Per-client RSSI and rate.**
    - TX rate: confirm `cp_txrate=1` against the phone's link rate, then make
      it the default.
@@ -282,7 +293,7 @@ Applied on top of `armbian/uwe5622@cc2835a` in
 | 170 | Log the channel IEs of `START_AP` |
 | 180 | DS Parameter Set IE for 5 GHz `START_AP` (after DeepAQ) |
 | 190 | Fix an out-of-bounds write of per-TID ADDBA timestamps |
-| 200 | Advertise only verified widths and channels (`max_bw_2g`, `max_bw_5g`, `allow_dfs`) |
+| 200 | Advertise only verified widths and channels (`max_bw_2g` default 20, `max_bw_5g` default 80, `allow_dfs`) |
 | 210 | `rx_desc_dump` debugfs (RX descriptor survey) |
 | 220 | Release the card reference on the `dt_rw_fail` early return |
 | 230 | `cp_sta_table` debugfs: firmware per-station rate/RSSI state |

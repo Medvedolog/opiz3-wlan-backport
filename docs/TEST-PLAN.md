@@ -69,3 +69,25 @@ scans and moves channels while our AP runs on the same radio.
 For S5 the vendor driver has single-channel AP+STA support
 (`STA_SOFTAP_SCC_MODE`); whether this firmware and our patches handle it is
 exactly what the test shows.
+
+## Results 2026-10-06 (Zero 3, r15 image with r16/r17 fixes) → beta 1
+
+| # | Result |
+|---|---|
+| 1 | ✅ AP off after flashing (stock OpenWrt), driver up, no `-95` |
+| 2 | ✅ (after r16: no `radio0 (Not found)` on first boot) |
+| 3 | ✅ real MAC; "Unisoc UWE5622" in LuCI and CLI |
+| 4 | ✅ temperatures ~45–55 °C, SDIO 50 MHz 4-bit, firmware version |
+| 5 | ✅ `ondemand` 480 MHz idle; governor/limits apply. Max 1416 MHz on this chip (speed bin) |
+| 6 | ✅ bytes/packets grow per client |
+| 7 | ✅ 433.3 Mbit/s VHT-MCS 9 80 MHz SGI, live (292.5 MCS 7 at another moment) |
+| 8 | ✅ r15 script: ~80 s (driver reload never works, RE §61); r16 script: 13.5 s |
+| 9 | ✅ radio found as phy2/phy4 after recoveries |
+| 10 | ✅ VHT80, 1 h 14 min, two clients, moderate load, no assert, ~54 °C |
+| S1 | ✅ 2.4 GHz phone hotspot, DHCP, internet |
+| S2 | ✅ STA mode reports signal (−27 dBm) and rate |
+| S4 | ✅ reconnect ~35 s after the uplink returns |
+| S5 | ❌ AP and STA share one MAC, clients cannot join (beta 2) |
+| T1 | ✅ scan while the AP runs, no client drop |
+| — | LTE (QMI) uplink with Wi-Fi clients ✅ after adding `modem` to the wan zone (image does it from r17) |
+| — | LuCI width change with `max_bw_5g=20` left the AP down (fixed in r17 by clamping on every apply) |

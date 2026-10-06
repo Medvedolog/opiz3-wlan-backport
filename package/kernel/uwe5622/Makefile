@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=uwe5622
 PKG_VERSION:=2026.09.13
-PKG_RELEASE:=12
+PKG_RELEASE:=17
 
 PKG_SOURCE_VERSION:=cc2835a3f935d5297e03cdce464c1785381a7b4d
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_VERSION).tar.gz
@@ -62,6 +62,9 @@ endef
 define KernelPackage/uwe5622/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/sprdwl-delay $(1)/etc/init.d/sprdwl-delay
+	$(INSTALL_BIN) ./files/uwe5622-clamp.init $(1)/etc/init.d/uwe5622-clamp
+	$(INSTALL_DIR) $(1)/usr/share/ucitrack
+	$(INSTALL_DATA) ./files/uwe5622-clamp.ucitrack $(1)/usr/share/ucitrack/kmod-uwe5622.json
 	$(INSTALL_DATA) ./files/uwe5622.options $(1)/etc/uwe5622.options
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) ./files/uwe5622-clamp-htmode $(1)/usr/sbin/uwe5622-clamp-htmode
@@ -69,6 +72,8 @@ define KernelPackage/uwe5622/install
 	$(INSTALL_BIN) ./files/uwe5622-iwinfo-name $(1)/usr/sbin/uwe5622-iwinfo-name
 	$(INSTALL_DIR) $(1)/lib
 	$(INSTALL_DATA) ./files/uwe5622.sh $(1)/lib/uwe5622.sh
+	$(INSTALL_DIR) $(1)/lib/udev/rules.d
+	$(INSTALL_DATA) ./files/77-mm-uwe5622-ignore.rules $(1)/lib/udev/rules.d/77-mm-uwe5622-ignore.rules
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/platform
 	$(INSTALL_DATA) ./files/50-uwe5622-recover $(1)/etc/hotplug.d/platform/50-uwe5622-recover
 endef
