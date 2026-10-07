@@ -10,8 +10,11 @@ chip MAC: clients saw the AP but could not join.
   (nl80211 NEW_INTERFACE; OpenWrt gives each interface its own) wins over
   the chip MAC, which sprdwl_set_mac_addr always preferred.
 - sprdwl_set_mac: while the interface is down any valid address is taken
-  in every mode (it was ignored unless the interface was an up station);
-  an up non-station interface returns -EBUSY instead of a silent 0.
+  in every mode (it was ignored unless the interface was an up station),
+  and sent to the firmware with WIFI_CMD_RND_MAC subtype 2: its context
+  was opened at creation (ndo_init) with the old MAC, and a station whose
+  host address alone changed failed the WPA handshake (reason 15). An up
+  non-station interface returns -EBUSY instead of a silent 0.
 - sprdwl_init_fw: when the address differs from the chip MAC it is also
   set with WIFI_CMD_RND_MAC subtype 2, which the firmware applies to any
   context (RE §63.3). WIFI_CMD_OPEN carries it too, but whether the
@@ -53,19 +56,39 @@ index 8d5fcb3..a31b2c7 100644
  #if 0
  	if (priv->fw_std & SPRDWL_STD_11E) {
 diff --git a/unisocwifi/main.c b/unisocwifi/main.c
-index 429b35c..e6d0086 100644
+index 429b35c..3c988c6 100644
 --- a/unisocwifi/main.c
 +++ b/unisocwifi/main.c
-@@ -931,6 +931,19 @@ static int sprdwl_set_mac(struct net_device *dev, void *addr)
+@@ -16,6 +16,9 @@
+  */
+ 
+ #include "sprdwl.h"
++#ifdef RND_MAC_SUPPORT
++#include "rnd_mac_addr.h"
++#endif
+ #ifndef OPENWRT_UWE5622_LEAN
+ #include "npi.h"
+ #endif
+@@ -931,6 +934,29 @@ static int sprdwl_set_mac(struct net_device *dev, void *addr)
  		return -EINVAL;
  	}
  
-+	/* interface down: the address goes to the firmware with WIFI_CMD_OPEN
-+	 * (and WIFI_CMD_RND_MAC, see sprdwl_init_fw), in any mode
++	/* interface down, in any mode. The firmware context was opened when
++	 * the interface was created (ndo_init -> sprdwl_init_fw, WIFI_CMD_OPEN
++	 * with the MAC of that time), so tell it the new address too: with
++	 * only the host address changed, a station associated with the old
++	 * one and the WPA handshake failed (reason 15).
 +	 */
 +	if (!netif_running(dev)) {
 +		if (!is_valid_ether_addr(sa->sa_data))
 +			return -EADDRNOTAVAIL;
++#ifdef RND_MAC_SUPPORT
++		if (vif->mode != SPRDWL_MODE_NONE &&
++		    wlan_cmd_set_rand_mac(vif->priv, vif->ctx_id,
++					  SPRDWL_CONNECT_RANDOM_ADDR,
++					  sa->sa_data))
++			return -EIO;
++#endif
 +		dev_addr_set(dev, sa->sa_data);
 +		return 0;
 +	}
@@ -76,7 +99,7 @@ index 429b35c..e6d0086 100644
  	if (vif->mode == SPRDWL_MODE_STATION) {
  		if (!is_zero_ether_addr(sa->sa_data)) {
  			vif->has_rand_mac = true;
-@@ -1452,6 +1465,12 @@ static struct sprdwl_vif *sprdwl_register_netdev(struct sprdwl_priv *priv,
+@@ -1452,6 +1478,12 @@ static struct sprdwl_vif *sprdwl_register_netdev(struct sprdwl_priv *priv,
  	SET_NETDEV_DEV(ndev, wiphy_dev(priv->wiphy));
  
  	sprdwl_set_mac_addr(vif, addr, target_mac_addr);
