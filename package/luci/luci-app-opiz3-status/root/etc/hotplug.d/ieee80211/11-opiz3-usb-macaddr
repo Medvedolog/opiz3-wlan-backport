@@ -1,0 +1,48 @@
+#!/bin/sh
+# USB Wi-Fi adapters: tie the radio to its MAC, not only to its path.
+#
+# On the H616/H618 the USB bus numbers can change between boots (usb1 and
+# usb2 swap), so the path in /etc/config/wireless no longer matches and
+# 10-wifi-detect ("wifi config") adds the adapter again as a new radio on
+# every boot. "wifi config" and netifd both also find a radio by
+# "option macaddr", so set it on the USB radio's section the first time it
+# is seen, and keep its path current when the MAC matches.
+# Runs after 10-wifi-detect. The onboard Wi-Fi (platform path) is left alone.
+
+[ "$ACTION" = add ] || exit 0
+phy="${DEVPATH##*/}"
+[ -r "/sys/class/ieee80211/$phy/macaddress" ] || exit 0
+mac="$(cat "/sys/class/ieee80211/$phy/macaddress")"
+dev="$(readlink -f "/sys/class/ieee80211/$phy/device")"
+path="${dev#/sys/devices/}"
+case "$path" in
+*/usb[0-9]*) ;;
+*) exit 0 ;;
+esac
+
+. /lib/functions.sh
+
+changed=
+fix() {
+	local s="$1" p m
+	config_get p "$s" path
+	config_get m "$s" macaddr
+	if [ -n "$m" ]; then
+		# known by MAC: follow the adapter to its current port
+		[ "$(echo "$m" | tr A-F a-f)" = "$mac" ] && [ "$p" != "$path" ] && [ -n "$p" ] || return 0
+		uci set "wireless.$s.path=$path"
+		logger -t opiz3 "$s: $mac moved to $path"
+	else
+		# new section from "wifi config" for this adapter (it compares
+		# path suffixes, so do the same)
+		[ -n "$p" ] && [ "${path%"$p"}" != "$path" ] || return 0
+		uci set "wireless.$s.macaddr=$mac"
+		logger -t opiz3 "$s: tied to $mac ($path)"
+	fi
+	changed=1
+}
+
+config_load wireless
+config_foreach fix wifi-device
+[ -n "$changed" ] && uci commit wireless
+exit 0
