@@ -723,3 +723,57 @@ jobs:
             done
           fi
           gh release view "$TAG" -R "$R" --json assets -q '.assets[].name'
+
+  # A run started by hand from another branch publishes nothing of the above;
+  # its images and packages go to the pre-release opiz3-<release>-test
+  # (replaced on every such run), so a test board updates over the network:
+  #   wget <url>/...squashfs-sdcard.img.gz && sysupgrade -n ...   (or apk add)
+  publish-test:
+    needs: image
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+
+      - name: Test release
+        run: |
+          TAG="opiz3-$RELEASE-test"
+          R="$GITHUB_REPOSITORY"
+          mkdir up
+          for d in art/opiz3-image-$RELEASE art/opiz2-image-$RELEASE art/opiz2w-image-$RELEASE; do
+            [ -d "$d" ] || continue
+            cp "$d"/*.img.gz "$d"/*.manifest up/ 2>/dev/null || true
+          done
+          cp art/opiz3-image-$RELEASE/sha256sums up/
+          cp art/apk-repo/repo/*.apk up/
+          ls -la up
+          BASE="https://github.com/$R/releases/download/$TAG"
+          cat > notes.md <<EOF
+          Test build from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}: NOT a release, replaced by the next test build.
+          The packages are not in the apk repository; images point to it as usual.
+
+          Update a board over the network (keeps nothing: first boot again):
+
+              cd /tmp && wget $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+              sysupgrade -n /tmp/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+
+          Or only the driver (same signing key):
+
+              cd /tmp && wget $BASE/<kmod-uwe5622-...apk> && apk add /tmp/kmod-uwe5622-*.apk && reboot
+          EOF
+          # the tag moves to this commit; the release is replaced as a whole
+          gh release delete "$TAG" -R "$R" -y --cleanup-tag 2>/dev/null || true
+          for i in 1 2 3; do
+            gh release create "$TAG" -R "$R" --prerelease --target "$GITHUB_SHA" \
+              --title "Test build ${GITHUB_SHA::7} (${GITHUB_REF_NAME})" \
+              --notes-file notes.md up/* && break
+            [ "$i" = 3 ] && exit 1
+            sleep 20
+          done
+          gh release view "$TAG" -R "$R" --json assets -q '.assets[].name'
