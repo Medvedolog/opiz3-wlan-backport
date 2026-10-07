@@ -38,6 +38,7 @@ start_service() {
 	# that the htmode clamp sees it, and drop LuCI's menu cache,
 	# built while there was no wireless config, so "Wireless" shows up.
 	/usr/sbin/uwe5622-iwinfo-name
+	/usr/sbin/uwe5622-hostap-macaddr
 
 	procd_open_instance
 	procd_set_param command /bin/sh -c \

@@ -1,0 +1,30 @@
+#!/bin/sh
+# Give a reused Wi-Fi interface the MAC that wifi-scripts chose for it.
+#
+# For a fullmac phy (no monitor mode, like this driver) wdev_create() in
+# /usr/share/hostap/common.uc does not create a new interface: it renames a
+# down one and changes its type with NL80211_CMD_SET_INTERFACE, which has no
+# MAC. The address computed for the interface is dropped, so an AP and a
+# station on the radio both keep the chip MAC and AP clients cannot join
+# (repeater, TEST-PLAN S5). Set it with RTM_SETLINK while the interface is
+# still down; the driver passes it to the firmware (patch 290).
+#
+# Runs at every boot (sprdwl-delay), before the radio comes up, so it is
+# applied again after wifi-scripts is upgraded. hostapd and wpa_supplicant
+# load common.uc when they start: they are restarted when it changes.
+
+F=/usr/share/hostap/common.uc
+[ -f "$F" ] || exit 0
+grep -q 'uwe5622: reused interface MAC' "$F" && exit 0
+grep -q '^		nl80211.request(nl80211.const.NL80211_CMD_SET_INTERFACE, 0, req);$' "$F" ||
+	exit 0
+
+sed -i '/^		nl80211.request(nl80211.const.NL80211_CMD_SET_INTERFACE, 0, req);$/a\
+		/* uwe5622: reused interface MAC: SET_INTERFACE carries none */\
+		if (req.mac)\
+			rtnl.request(rtnl.const.RTM_SETLINK, 0, { dev: req.dev, address: req.mac });' "$F"
+
+logger -t uwe5622 "wifi-scripts: reused interfaces now get their own MAC ($F)"
+[ -x /etc/init.d/wpad ] && /etc/init.d/wpad running 2>/dev/null &&
+	/etc/init.d/wpad restart
+exit 0
