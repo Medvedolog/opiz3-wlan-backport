@@ -57,6 +57,10 @@ env:
     zero2:xunlong_orangepi-zero2:sun50i-h616-orangepi-zero2
     zero2w:xunlong_orangepi-zero2w:sun50i-h618-orangepi-zero2w
   SDK_SUFFIX: sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64
+  UBOOT_TAG: v2026.04
+  UBOOT_VER: "2026.04"
+  UBOOT_COMMIT: 88dc2788777babfd6322fa655df549a019aa1e69
+  TFA_TAG: v2.10
   FOOTSTRAP_TAG: v0.14.13
   FOOTSTRAP_VERSION: 0.14.13
   AWG_COMMIT: 3f3ec68d594c8e965c988af75ac5314616229c88
@@ -402,6 +406,38 @@ jobs:
             cmp /tmp/fit-fdt.dtb "/tmp/$name.dtb"
           done
 
+      # OpenWrt 25.12.5 ships U-Boot 2025.01, whose H616/H618 DRAM size
+      # detection only knows power-of-2 sizes: the 1.5 GB Zero 3 (and Zero 2W)
+      # does not boot (reported on beta 1). Support for 1.5/3 GB came with
+      # U-Boot commit c47b636737 "sunxi: dram: detect non-power-of-2 sized
+      # DRAM chips", first in v2026.04. Build that release for the H618
+      # boards, with TF-A 2.10 as OpenWrt does, and put it where the IB takes
+      # the bootloader from. The H616 Zero 2 keeps OpenWrt's U-Boot.
+      - name: U-Boot ${{ env.UBOOT_TAG }} for the H618 boards (1.5 GB DRAM)
+        working-directory: ib
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu bison flex libssl-dev \
+            libgnutls28-dev uuid-dev swig python3-dev python3-setuptools python3-pyelftools
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          git clone -q --depth 1 -b "$TFA_TAG" https://github.com/ARM-software/arm-trusted-firmware /tmp/tfa
+          make -C /tmp/tfa -j"$(nproc)" PLAT=sun50i_h616 DEBUG=0 bl31 >/tmp/tfa.log 2>&1 ||
+            { tail -50 /tmp/tfa.log; exit 1; }
+          BL31=/tmp/tfa/build/sun50i_h616/release/bl31.bin
+          git clone -q --depth 1 -b "$UBOOT_TAG" https://github.com/u-boot/u-boot /tmp/uboot
+          test "$(git -C /tmp/uboot rev-parse HEAD)" = "$UBOOT_COMMIT"
+          for b in zero3:orangepi_zero3 zero2w:orangepi_zero2w; do
+            name=${b%%:*}; cfg=${b#*:}
+            dst=$(find staging_dir -name "xunlong_orangepi-$name-u-boot-with-spl.bin" | head -1)
+            test -n "$dst"
+            make -C /tmp/uboot -s distclean
+            make -C /tmp/uboot -s "${cfg}_defconfig"
+            make -C /tmp/uboot -j"$(nproc)" BL31="$BL31" SCP=/dev/null >/tmp/uboot.log 2>&1 ||
+              { tail -50 /tmp/uboot.log; exit 1; }
+            grep -q "U-Boot $UBOOT_VER" /tmp/uboot/u-boot-sunxi-with-spl.bin
+            ls -l "$dst" /tmp/uboot/u-boot-sunxi-with-spl.bin
+            cp /tmp/uboot/u-boot-sunxi-with-spl.bin "$dst"
+          done
+
       - name: Our repository and key
         working-directory: ib
         run: |
@@ -509,6 +545,12 @@ jobs:
           done
           if grep -qE '^(openvpn-[a-z]+|luci-app-openvpn) ' "$MAN"; then
             echo "OpenVPN in image"; exit 1; fi
+
+          case "$name" in zero3|zero2w)
+            gunzip -c "$IMG" | head -c 4194304 | grep -qa "U-Boot $UBOOT_VER" ||
+              { echo "U-Boot $UBOOT_VER not in the image"; exit 1; }
+            echo "  OK      U-Boot $UBOOT_VER (1.5 GB DRAM)" ;;
+          esac
 
           echo "== DTB inside the image's FIT kernel =="
           gunzip -c "$IMG" > /tmp/img
