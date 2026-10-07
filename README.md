@@ -86,7 +86,7 @@ Hardware results of 2026-10-06 (Zero 3, r15 image + r16/r17 fixes), see
 | DFS channels (52–144), 160 MHz, 40 MHz on 2.4 GHz | Blocked (untested; unverified settings made the firmware assert, RE §45) |
 | Autoload at boot | Delayed load after the network is up, so a stuck SDIO probe cannot block Ethernet ([roadmap](#what-we-are-still-working-on), item 4) |
 | Orange Pi Zero 2 | Built, untested |
-| Orange Pi Zero 2W | Built, untested (from beta 2) |
+| Orange Pi Zero 2W | Boots, AP works (1 GB, test image; from beta 2) |
 
 Module parameters in `/etc/uwe5622.options`:
 
@@ -109,7 +109,7 @@ firmware assert.
 |---|---|---|---|
 | Orange Pi Zero 3 | H618 | `xunlong_orangepi-zero3` | **Tested** on hardware |
 | Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Built, untested: testers wanted.** Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900 |
-| Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Built, untested: testers wanted** (from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ3` access point of the first boot |
+| Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Boots, Wi-Fi works** (1 GB board, test image 2026-10-07: SDIO card found, firmware MARLIN3_19B_W21.05.3 loaded, AP on 5 GHz VHT80, a client joined; from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ3` access point of the first boot |
 
 **1.5 GB boards** (Zero 3, Zero 2W): OpenWrt 25.12.5's U-Boot 2025.01
 detects only power-of-2 DRAM sizes and does not boot them. From beta 2 the

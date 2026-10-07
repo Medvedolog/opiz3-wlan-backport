@@ -104,6 +104,18 @@ CHIP_SLP value (from r20). `echo 1 > /sys/module/sprdwl_ng/parameters/wifi_ram_f
 reads without the check; if that read fails, the Wi-Fi stops and
 uwe5622-recover brings it back in ~14 s.
 
+## Orange Pi Zero 2W, test image (r22, 2026-10-07)
+
+A tester's debug archive, ext4 image, 1 GB board:
+
+- boots (OpenWrt's `xunlong_orangepi-zero2w` profile, our U-Boot build);
+- `mmc1: new high speed SDIO card at address 8800`, chip id `0x2355b001`,
+  firmware `MARLIN3_19B_W21.05.3`, CP ready: the Wi-Fi nodes added by
+  `zero3-dtb-add-wifi.py` are right for this board;
+- `phy0-ap0` AP `OPiZ3`, 5 GHz channel 44, VHT80, `AP-ENABLED` 34 s after
+  boot; a client joined; no assert in the log;
+- not covered: 1.5 GB variant, STA mode, recovery.
+
 ## Results 2026-10-06 (Zero 3, r15 image with r16/r17 fixes) → beta 1
 
 | # | Result |
