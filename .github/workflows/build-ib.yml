@@ -800,10 +800,12 @@ jobs:
           Test build from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}: NOT a release, replaced by the next test build.
           The packages are not in the apk repository; images point to it as usual.
 
-          Update a board over the network (keeps nothing: first boot again):
+          Update a board over the network (keeps nothing: first boot again). -p writes the
+          whole image, bootloader included: without it OpenWrt 25.12.5's sunxi sysupgrade
+          writes the partitions only (its U-Boot "dd of=\$diskdev" lacks /dev/):
 
               cd /tmp && wget $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
-              sysupgrade -n /tmp/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+              sysupgrade -n -p /tmp/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
 
           Or only the driver (same signing key):
 
