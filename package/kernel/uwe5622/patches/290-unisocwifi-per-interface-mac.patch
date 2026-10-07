@@ -4,6 +4,8 @@ Subject: [PATCH] unisocwifi: per-interface MAC (AP + station on one radio)
 With an AP and a station on the radio (repeater) both interfaces had the
 chip MAC: clients saw the AP but could not join.
 
+- NL80211_FEATURE_MAC_ON_CREATE: without it cfg80211 drops the MAC of
+  NL80211_CMD_NEW_INTERFACE before the driver sees it.
 - sprdwl_register_netdev: the address requested with the interface
   (nl80211 NEW_INTERFACE; OpenWrt gives each interface its own) wins over
   the chip MAC, which sprdwl_set_mac_addr always preferred.
@@ -16,7 +18,7 @@ chip MAC: clients saw the AP but could not join.
   firmware applies it from there is not known.
 ---
 diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
-index 8d5fcb3..da37684 100644
+index 8d5fcb3..a31b2c7 100644
 --- a/unisocwifi/cfg80211.c
 +++ b/unisocwifi/cfg80211.c
 @@ -449,6 +449,19 @@ int sprdwl_init_fw(struct sprdwl_vif *vif)
@@ -39,6 +41,17 @@ index 8d5fcb3..da37684 100644
  	wl_ndev_log(L_DBG, vif->ndev, "%s,open success type %d, mode:%d, ctx_id:%d\n",
  		    __func__, type,
  		    vif->mode, vif->ctx_id);
+@@ -4696,6 +4709,10 @@ void sprdwl_setup_wiphy(struct wiphy *wiphy, struct sprdwl_priv *priv)
+ 	wiphy->features |= (SCAN_RANDOM_MAC_ADDR);
+ #endif
+ 	wiphy->features |= NL80211_FEATURE_CELL_BASE_REG_HINTS;
++	/* take the MAC of NL80211_CMD_NEW_INTERFACE (cfg80211 drops it
++	 * otherwise): each interface on the radio gets its own (repeater)
++	 */
++	wiphy->features |= NL80211_FEATURE_MAC_ON_CREATE;
+ 
+ #if 0
+ 	if (priv->fw_std & SPRDWL_STD_11E) {
 diff --git a/unisocwifi/main.c b/unisocwifi/main.c
 index 429b35c..e6d0086 100644
 --- a/unisocwifi/main.c
