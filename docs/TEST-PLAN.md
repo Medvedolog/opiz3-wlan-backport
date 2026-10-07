@@ -98,6 +98,12 @@ grep lut-peer /sys/kernel/debug/sprdwl_debug/cp_sta_table
 Send the output of `grab` (ACK RSSI per LUT) and `diff`, plus the phone's
 own signal reading for each position.
 
+If `grab` fails with "Resource temporarily unavailable", the power check
+refused (r19 test image, 2026-10-07): `dmesg | grep wifi_ram` shows the
+CHIP_SLP value (from r20). `echo 1 > /sys/module/sprdwl_ng/parameters/wifi_ram_force`
+reads without the check; if that read fails, the Wi-Fi stops and
+uwe5622-recover brings it back in ~14 s.
+
 ## Results 2026-10-06 (Zero 3, r15 image with r16/r17 fixes) → beta 1
 
 | # | Result |

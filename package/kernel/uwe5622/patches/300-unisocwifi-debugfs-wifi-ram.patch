@@ -9,14 +9,16 @@ firmware's rate control reads.
 wifi_ram is a binary debugfs file covering bus 0x40340000..0x40342000
 (8 KiB) inside the window the vendor crash dump reads. Each read checks
 that the Wi-Fi power domains are on (CHIP_SLP) first and returns -EAGAIN
-otherwise; same chunking, locking and error handling as cp_mem. Root only,
-never read by the driver itself.
+otherwise (logged with the register value); the module parameter
+wifi_ram_force skips that check, for finding out what CHIP_SLP reads on a
+running board. Same chunking, locking and error handling as cp_mem. Root
+only, never read by the driver itself.
 ---
 diff --git a/unisocwifi/wl_core.c b/unisocwifi/wl_core.c
-index 45292f2..4e5317b 100644
+index 45292f2..042b321 100644
 --- a/unisocwifi/wl_core.c
 +++ b/unisocwifi/wl_core.c
-@@ -926,6 +926,75 @@ static const struct file_operations cp_mem_fops = {
+@@ -926,6 +926,83 @@ static const struct file_operations cp_mem_fops = {
  	.llseek = default_llseek,
  };
  
@@ -32,6 +34,13 @@ index 45292f2..4e5317b 100644
 +#define WIFI_RAM_END		0x40342000
 +#define WIFI_CHIP_SLP		0x4083c00c
 +#define WIFI_ALL_PWRON		(BIT(16) | BIT(14))	/* MAC, WRAP */
++
++/* skip the CHIP_SLP check (for finding out what it reads on this board;
++ * a read from a powered-down domain stops the Wi-Fi until uwe5622-recover)
++ */
++static bool wifi_ram_force;
++module_param(wifi_ram_force, bool, 0644);
++MODULE_PARM_DESC(wifi_ram_force, "debugfs wifi_ram: read without the power check");
 +
 +static ssize_t wifi_ram_read(struct file *file, char __user *ubuf,
 +			     size_t count, loff_t *ppos)
@@ -62,17 +71,18 @@ index 45292f2..4e5317b 100644
 +
 +	mutex_lock(&cp_sta_lock);
 +	ret = sprdwcn_bus_reg_read(WIFI_CHIP_SLP, &slp, 4);
-+	if (!ret && (slp & WIFI_ALL_PWRON) != WIFI_ALL_PWRON)
++	if (!ret && (slp & WIFI_ALL_PWRON) != WIFI_ALL_PWRON && !wifi_ram_force)
 +		ret = -EAGAIN;
 +	else if (!ret)
 +		ret = sprdwcn_bus_direct_read(addr, buf, len);
 +	mutex_unlock(&cp_sta_lock);
 +	if (ret) {
 +		kfree(buf);
-+		wl_err("wifi_ram: read at 0x%x failed (%d, slp 0x%x)\n",
-+		       addr, ret, slp);
++		pr_info("sprdwl: wifi_ram: read at 0x%x failed (%d, CHIP_SLP 0x%x)\n",
++			addr, ret, slp);
 +		return ret == -EAGAIN ? -EAGAIN : -EIO;
 +	}
++	pr_info_once("sprdwl: wifi_ram: CHIP_SLP 0x%x\n", slp);
 +	if (copy_to_user(ubuf, buf, len)) {
 +		kfree(buf);
 +		return -EFAULT;
@@ -92,7 +102,7 @@ index 45292f2..4e5317b 100644
  static int rx_desc_dump_open(struct inode *inode, struct file *file)
  {
  	return single_open(file, sprdwl_rx_desc_dump_show, inode->i_private);
-@@ -980,6 +1049,8 @@ static void sprdwl_debugfs_init(struct sprdwl_intf *intf)
+@@ -980,6 +1057,8 @@ static void sprdwl_debugfs_init(struct sprdwl_intf *intf)
  			    &cp_sta_table_fops);
  	debugfs_create_file("cp_mem", S_IRUSR, sprdwl_debug_root, intf,
  			    &cp_mem_fops);
