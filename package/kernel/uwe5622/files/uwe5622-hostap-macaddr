@@ -1,13 +1,17 @@
 #!/bin/sh
-# Give a reused Wi-Fi interface the MAC that wifi-scripts chose for it.
+# Never reuse an interface of the UWE5622 radio in wifi-scripts.
 #
 # For a fullmac phy (no monitor mode, like this driver) wdev_create() in
-# /usr/share/hostap/common.uc does not create a new interface: it renames a
-# down one and changes its type with NL80211_CMD_SET_INTERFACE, which has no
-# MAC. The address computed for the interface is dropped, so an AP and a
-# station on the radio both keep the chip MAC and AP clients cannot join
-# (repeater, TEST-PLAN S5). Set it with RTM_SETLINK while the interface is
-# still down; the driver passes it to the firmware (patch 290).
+# /usr/share/hostap/common.uc does not create the interface: it takes any
+# interface of the phy whose operstate is down, renames it and changes its
+# type with NL80211_CMD_SET_INTERFACE. On this radio that
+# - drops the MAC computed for the interface (SET_INTERFACE has none), so an
+#   AP and a station both keep the chip MAC and AP clients cannot join, and
+# - races: wpa_supplicant took the interface hostapd was setting up for the
+#   AP ("phy0-sta0: renamed from phy0-ap0") and the AP did not start
+# (repeater, TEST-PLAN S5, 2026-10-07). This driver deletes and creates
+# interfaces fine, so for this phy wdev_create() always does
+# NL80211_CMD_NEW_INTERFACE with the MAC; patch 290 applies it.
 #
 # Runs at every boot (sprdwl-delay), before the radio comes up, so it is
 # applied again after wifi-scripts is upgraded. hostapd and wpa_supplicant
@@ -15,16 +19,21 @@
 
 F=/usr/share/hostap/common.uc
 [ -f "$F" ] || exit 0
-grep -q 'uwe5622: reused interface MAC' "$F" && exit 0
-grep -q '^		nl80211.request(nl80211.const.NL80211_CMD_SET_INTERFACE, 0, req);$' "$F" ||
-	exit 0
+grep -q 'uwe5622: never reuse' "$F" && exit 0
+# an earlier test version of this script
+if grep -q 'uwe5622: reused interface MAC' "$F"; then
+	awk '/uwe5622: reused interface MAC/ { skip = 3 } skip { skip--; next } { print }' \
+		"$F" > "$F.uwe" && cat "$F.uwe" > "$F"
+	rm -f "$F.uwe"
+fi
+grep -q '^	let reuse_ifname = find_reusable_wdev(phyidx);$' "$F" || exit 0
 
-sed -i '/^		nl80211.request(nl80211.const.NL80211_CMD_SET_INTERFACE, 0, req);$/a\
-		/* uwe5622: reused interface MAC: SET_INTERFACE carries none */\
-		if (req.mac)\
-			rtnl.request(rtnl.const.RTM_SETLINK, 0, { dev: req.dev, address: req.mac });' "$F"
+sed -i '/^	let reuse_ifname = find_reusable_wdev(phyidx);$/a\
+	/* uwe5622: never reuse an interface of this radio (MAC, races) */\
+	if (index(readfile(`/sys/class/ieee80211/${phy}/device/modalias`) ?? "", "platform:unisoc_wifi") == 0)\
+		reuse_ifname = null;' "$F"
 
-logger -t uwe5622 "wifi-scripts: reused interfaces now get their own MAC ($F)"
+logger -t uwe5622 "wifi-scripts: interfaces of the UWE5622 radio are always created anew ($F)"
 [ -x /etc/init.d/wpad ] && /etc/init.d/wpad running 2>/dev/null &&
 	/etc/init.d/wpad restart
 exit 0
