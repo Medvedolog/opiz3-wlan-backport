@@ -443,6 +443,12 @@ jobs:
           chmod +x files/etc/uci-defaults/zz-opiz3-wan-zone
           sh -n files/etc/uci-defaults/zz-opiz3-wan-zone
 
+          # first boot of this image: uwe5622-default-ap turns the onboard
+          # Wi-Fi into the OPiZ3 AP once (never on "apk upgrade")
+          printf '#!/bin/sh\ntouch /etc/uwe5622-first-boot\nexit 0\n' \
+            > files/etc/uci-defaults/zz-opiz3-first-boot
+          chmod +x files/etc/uci-defaults/zz-opiz3-first-boot
+
       - name: Build image
         working-directory: ib
         run: |
@@ -536,6 +542,7 @@ jobs:
           chk 'test -x "$ROOT/etc/init.d/uwe5622-clamp" && grep -q uwe5622-clamp "$ROOT/usr/share/ucitrack/kmod-uwe5622.json"'
           chk 'grep -q "for n in modem wwan" "$ROOT/etc/uci-defaults/zz-opiz3-wan-zone"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-default-ap" && grep -q uwe5622-default-ap "$ROOT/etc/init.d/sprdwl-delay"'
+          chk 'grep -q uwe5622-first-boot "$ROOT/etc/uci-defaults/zz-opiz3-first-boot" "$ROOT/usr/sbin/uwe5622-default-ap"'
           chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
           chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'

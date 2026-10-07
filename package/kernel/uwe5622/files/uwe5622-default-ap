@@ -1,20 +1,31 @@
 #!/bin/sh
-# First boot only (called by sprdwl-delay right after "wifi config" created
-# the radio): bring the onboard Wi-Fi up as a 5 GHz access point instead of
-# OpenWrt's disabled, open default, so the board is reachable over Wi-Fi
-# out of the box. The password is public (it is in this file and the docs):
-# change it right away. LuCI shows a warning on Status -> Overview while it
-# is in use.
+# First boot of a flashed image only: bring the onboard Wi-Fi up as a 5 GHz
+# access point instead of OpenWrt's disabled, open default, so the board is
+# reachable over Wi-Fi out of the box. The password is public (it is in this
+# file and the docs): change it right away. LuCI shows a warning on
+# Status -> Overview while it is in use.
+#
+# "First boot" is the flag /etc/uwe5622-first-boot, set by the image's
+# uci-defaults (never by the package, so "apk upgrade" does not turn an AP
+# on), and the radio's interface still being OpenWrt's untouched default.
+# Not "the radio is missing from the config": 10-wifi-detect usually runs
+# "wifi config" as soon as the phy appears, before sprdwl-delay looks.
+# Exit 0 only when the config was changed.
 
 SSID=OPiZ3
 KEY=12345678test
+FLAG=/etc/uwe5622-first-boot
 
+[ -e "$FLAG" ] || exit 1
 . /lib/uwe5622.sh
 radio=$(uwe_radios | head -1)
-[ -n "$radio" ] || exit 0
+[ -n "$radio" ] || exit 1
+rm -f "$FLAG"
 iface=$(uci -q show wireless |
 	sed -n "s/^wireless\.\([^.=]*\)\.device='$radio'$/\1/p" | head -1)
-[ -n "$iface" ] || exit 0
+[ -n "$iface" ] || exit 1
+[ "$(uci -q get "wireless.$iface.ssid")" = OpenWrt ] &&
+	[ "$(uci -q get "wireless.$iface.disabled")" = 1 ] || exit 1
 
 uci set "wireless.$radio.band=5g"
 uci set "wireless.$radio.channel=36"
@@ -28,3 +39,4 @@ uci -q delete "wireless.$iface.disabled"
 uci -q delete "wireless.$radio.disabled"
 uci commit wireless
 logger -t uwe5622 "Wi-Fi AP '$SSID' on 5 GHz channel 36 with the DEFAULT password $KEY: change it (Network -> Wireless)"
+exit 0

@@ -46,6 +46,10 @@ The board starts a Wi-Fi access point: SSID **`OPiZ3`**, 5 GHz channel 36,
 WPA2, password **`12345678test`**. Connect to it and open
 http://192.168.1.1.
 
+If the radio shows up as `OpenWrt`, disabled (seen on a clean flash: a
+first-boot race, fixed in beta 2), run `/usr/sbin/uwe5622-default-ap;
+wifi` once, or set an SSID and key in LuCI → Network → Wireless.
+
 **This password is public: change it right away** (LuCI → Network →
 Wireless → Edit → Wireless Security). Until then the "Board" panel shows a
 warning. Set a root password (System → Administration).
@@ -107,6 +111,11 @@ crashes show as `assert` or `recovering Wi-Fi` in `logread`.
 Плата сама поднимает точку доступа: SSID **`OPiZ3`**, 5 ГГц, канал 36,
 WPA2, пароль **`12345678test`**. Подключитесь и откройте
 http://192.168.1.1.
+
+Если радио появилось как `OpenWrt` и выключено (бывает на чистой
+прошивке: гонка при первой загрузке, исправлено в beta 2), выполните один
+раз `/usr/sbin/uwe5622-default-ap; wifi` или задайте SSID и пароль в
+LuCI → Network → Wireless.
 
 **Пароль публичный — смените его сразу** (LuCI → Network → Wireless →
 Edit → Wireless Security). Пока не сменён, в блоке «Board» висит

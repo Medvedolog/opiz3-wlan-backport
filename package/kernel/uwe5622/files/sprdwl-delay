@@ -31,10 +31,10 @@ start_service() {
 	# parameters, e.g. max_bw_5g=80, go in /etc/uwe5622.options.
 	#
 	# On the first boot the radio appears long after LuCI and the hotplug
-	# "wifi config" may not have run yet: create the config here if it is
-	# missing, set it up as a 5 GHz WPA2 AP with a default password
-	# (uwe5622-default-ap), make netifd load it (or "wifi up" finds no
-	# radio0), so
+	# "wifi config" may or may not have run yet: create the config here if
+	# it is missing; on the first boot of a flashed image set it up as a
+	# 5 GHz WPA2 AP with a default password (uwe5622-default-ap), make
+	# netifd load it (or "wifi up" finds no radio0), so
 	# that the htmode clamp sees it, and drop LuCI's menu cache,
 	# built while there was no wireless config, so "Wireless" shows up.
 	/usr/sbin/uwe5622-iwinfo-name
@@ -47,7 +47,8 @@ start_service() {
 		 sleep 5; \
 		 [ -d /sys/module/sprdwl_ng ] || uwe_load_wifi || exit 1; \
 		 uwe_wait_phy 30 >/dev/null || exit 1; \
-		 [ -n "$(uwe_radios)" ] || { /sbin/wifi config; /usr/sbin/uwe5622-default-ap; ubus call network reload; sleep 2; }; \
+		 [ -n "$(uwe_radios)" ] || /sbin/wifi config; \
+		 /usr/sbin/uwe5622-default-ap && { ubus call network reload; sleep 2; }; \
 		 /usr/sbin/uwe5622-clamp-htmode; \
 		 rm -f /tmp/luci-indexcache*; \
 		 uwe_wifi up'
