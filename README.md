@@ -86,6 +86,7 @@ Hardware results of 2026-10-06 (Zero 3, r15 image + r16/r17 fixes), see
 | DFS channels (52–144), 160 MHz, 40 MHz on 2.4 GHz | Blocked (untested; unverified settings made the firmware assert, RE §45) |
 | Autoload at boot | Delayed load after the network is up, so a stuck SDIO probe cannot block Ethernet ([roadmap](#what-we-are-still-working-on), item 4) |
 | Orange Pi Zero 2 | Built, untested |
+| Orange Pi Zero 2W | Built, untested (from beta 2) |
 
 Module parameters in `/etc/uwe5622.options`:
 
@@ -108,12 +109,11 @@ firmware assert.
 |---|---|---|---|
 | Orange Pi Zero 3 | H618 | `xunlong_orangepi-zero3` | **Tested** on hardware |
 | Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Built, untested: testers wanted.** Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900 |
+| Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Built, untested: testers wanted** (from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ3` access point of the first boot |
 
 Other boards that carry the AW859A / UWE5622 module (per vendor
 specifications, not verified here):
 
-- **Orange Pi Zero 2W** (H618): in OpenWrt as `xunlong_orangepi-zero2w`;
-  needs its own Wi-Fi device-tree nodes.
 - **Orange Pi 3 LTS** (H6): the board the original OpenWrt package was
   written for; OpenWrt has no separate 3 LTS profile.
 - Other boards and TV boxes with this module.

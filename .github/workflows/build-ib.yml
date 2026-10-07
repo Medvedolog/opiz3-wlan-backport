@@ -48,10 +48,14 @@ env:
   ARCH: aarch64_cortex-a53
   PROFILE: xunlong_orangepi-zero3
   # board name, ImageBuilder profile, DTB; Zero 2 shares the Wi-Fi wiring of
-  # the Zero 3 (sun50i-h616-orangepi-zero.dtsi, PG18 reset) but is untested
+  # the Zero 3 (sun50i-h616-orangepi-zero.dtsi, PG18 reset) but is untested.
+  # Zero 2W: the vendor device tree (linux-orangepi orange-pi-6.1-sun50iw9)
+  # has the same Wi-Fi nodes as its Zero 3 one and orangepi-build loads the
+  # same UWE5622 modules; untested on hardware
   BOARDS: >-
     zero3:xunlong_orangepi-zero3:sun50i-h618-orangepi-zero3
     zero2:xunlong_orangepi-zero2:sun50i-h616-orangepi-zero2
+    zero2w:xunlong_orangepi-zero2w:sun50i-h618-orangepi-zero2w
   SDK_SUFFIX: sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64
   FOOTSTRAP_TAG: v0.14.13
   FOOTSTRAP_VERSION: 0.14.13
@@ -575,6 +579,15 @@ jobs:
             ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2.*
             ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opiz2w-image-${{ env.RELEASE }}
+          if-no-files-found: error
+          path: |
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2w-*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*orangepi-zero2w.*
+            ib/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
+
       - name: Package ImageBuilder
         run: |
           # ready-to-use ImageBuilder: Wi-Fi DTB, our packages, key and repo
@@ -667,8 +680,11 @@ jobs:
           - Orange Pi Zero 2 (xunlong_orangepi-zero2): UNTESTED, testers wanted. Same Wi-Fi module and
             wiring as the Zero 3 (shared device tree include, PG18 reset); please report whether
             phy0 appears and an AP starts (scripts/collect-debug.sh).
+          - Orange Pi Zero 2W (xunlong_orangepi-zero2w): UNTESTED, testers wanted. The vendor device
+            tree has the same Wi-Fi wiring as the Zero 3 and the vendor loads the same driver. No
+            Ethernet on this board: connect to the OPiZ3 access point after the first boot.
 
-          The ImageBuilder archive already carries the Wi-Fi DTBs of both boards, these packages,
+          The ImageBuilder archive already carries the Wi-Fi DTBs of these boards, these packages,
           the signing key and the repository:
 
               make image PROFILE=xunlong_orangepi-zero3 PACKAGES="kmod-uwe5622 uwe5622-firmware wpad-basic-mbedtls luci ..."
@@ -676,8 +692,9 @@ jobs:
           Built from ${GITHUB_SHA}.
           EOF
           FILES=$(ls art/opiz3-image-$RELEASE/* art/opiz2-image-$RELEASE/*.gz \
-            art/opiz2-image-$RELEASE/*.manifest art/opiz3-imagebuilder-$RELEASE/*)
-          TITLE="Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}"
+            art/opiz2-image-$RELEASE/*.manifest art/opiz2w-image-$RELEASE/*.gz \
+            art/opiz2w-image-$RELEASE/*.manifest art/opiz3-imagebuilder-$RELEASE/*)
+          TITLE="Orange Pi Zero 3 / Zero 2 / Zero 2W OpenWrt $RELEASE (UWE5622) ${GITHUB_SHA::7}"
           R="$GITHUB_REPOSITORY"
           dup=$(for f in $FILES; do basename "$f"; done | sort | uniq -d)
           [ -z "$dup" ] || { echo "duplicate asset names: $dup"; exit 1; }
