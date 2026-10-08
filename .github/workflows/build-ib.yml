@@ -484,7 +484,7 @@ jobs:
           sh -n files/etc/uci-defaults/zz-opiz3-wan-zone
 
           # first boot of this image: uwe5622-default-ap turns the onboard
-          # Wi-Fi into the OPiZ3 AP once (never on "apk upgrade")
+          # Wi-Fi into the OPiZ3 / OPiZ2W / OPiZ2 AP once (never on "apk upgrade")
           printf '#!/bin/sh\ntouch /etc/uwe5622-first-boot\nexit 0\n' \
             > files/etc/uci-defaults/zz-opiz3-first-boot
           chmod +x files/etc/uci-defaults/zz-opiz3-first-boot
@@ -724,7 +724,7 @@ jobs:
             phy0 appears and an AP starts (scripts/collect-debug.sh).
           - Orange Pi Zero 2W (xunlong_orangepi-zero2w): UNTESTED, testers wanted. The vendor device
             tree has the same Wi-Fi wiring as the Zero 3 and the vendor loads the same driver. No
-            Ethernet on this board: connect to the OPiZ3 access point after the first boot.
+            Ethernet on this board: connect to the OPiZ2W access point after the first boot.
 
           The ImageBuilder archive already carries the Wi-Fi DTBs of these boards, these packages,
           the signing key and the repository:

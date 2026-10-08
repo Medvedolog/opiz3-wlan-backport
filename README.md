@@ -118,7 +118,7 @@ firmware assert.
 |---|---|---|---|
 | Orange Pi Zero 3 | H618 | `xunlong_orangepi-zero3` | **Tested** on hardware |
 | Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Built, untested: testers wanted.** Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900 |
-| Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Boots, Wi-Fi works** (1 GB board, test image 2026-10-07: SDIO card found, firmware MARLIN3_19B_W21.05.3 loaded, AP on 5 GHz VHT80, a client joined; from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ3` access point of the first boot |
+| Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Boots, Wi-Fi works** (1 GB board, test image 2026-10-07: SDIO card found, firmware MARLIN3_19B_W21.05.3 loaded, AP on 5 GHz VHT80, a client joined; from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ2W` access point of the first boot |
 
 **1.5 GB boards** (Zero 3, Zero 2W): OpenWrt 25.12.5's U-Boot 2025.01
 detects only power-of-2 DRAM sizes and does not boot them. From beta 2 the
@@ -171,7 +171,8 @@ Each build produces:
 - **Image** (`opiz3-image-25.12.5`): squashfs and ext4 SD-card images.
   Flash them like any OpenWrt sunxi image.
   From r18 the board comes up with a Wi-Fi access point on the first boot:
-  SSID **`OPiZ3`**, 5 GHz channel 36 (VHT80), WPA2, password
+  SSID after the board — **`OPiZ3`**, **`OPiZ2W`** or **`OPiZ2`** — 5 GHz
+  channel 36 (VHT80), WPA2, password
   **`12345678test`**. The image then reaches LuCI at http://192.168.1.1 over
   Wi-Fi without a cable.
 

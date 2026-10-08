@@ -12,7 +12,14 @@
 # "wifi config" as soon as the phy appears, before sprdwl-delay looks.
 # Exit 0 only when the config was changed.
 
-SSID=OPiZ3
+# SSID after the board: OPiZ3, OPiZ2W, OPiZ2 (board_name from board.json,
+# e.g. "xunlong,orangepi-zero2w"); any other board: OPi-Wi-Fi
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+*orangepi-zero3) SSID=OPiZ3 ;;
+*orangepi-zero2w) SSID=OPiZ2W ;;
+*orangepi-zero2) SSID=OPiZ2 ;;
+*) SSID=OPi-Wi-Fi ;;
+esac
 KEY=12345678test
 FLAG=/etc/uwe5622-first-boot
 
