@@ -4,21 +4,20 @@ START=99
 USE_PROCD=1
 
 start_service() {
-	# KEDUA modul ditunda, bukan hanya sprdwl_ng.
+	# BOTH modules are deferred, not only sprdwl_ng.
 	#
-	# Versi asli (dari PR ImmortalWrt untuk Orange Pi 3 LTS) sengaja
-	# membiarkan uwe5622_bsp_sdio di-autoload lewat /etc/modules.d/30-uwe5622.
-	# Autoload itu dijalankan kmodloader pada S10boot -- jauh sebelum S20network.
-	# Di Orange Pi Zero 3, probe SDIO-nya menggantung di sana dan boot berhenti
-	# total sebelum jaringan pernah naik: board menyala, link ethernet hidup,
-	# tapi nol frame terkirim.
+	# The original (an ImmortalWrt PR for the Orange Pi 3 LTS) let
+	# uwe5622_bsp_sdio autoload from /etc/modules.d/30-uwe5622, which
+	# kmodloader runs at S10boot, long before S20network. On the Orange Pi
+	# Zero 3 its SDIO probe hung there and the boot stopped before the
+	# network ever came up: board on, Ethernet link up, no frame sent.
 	#
-	# Dimuat di sini, setelah netifd selesai, kegagalan driver paling buruk
-	# hanya berarti Wi-Fi mati -- bukan seluruh gateway tidak bisa dijangkau.
+	# Loaded here, after netifd, a driver failure at worst means no Wi-Fi,
+	# not an unreachable gateway.
 	#
-	# Power-save firmware sengaja dimatikan. Pada UWE5622 mode tidur dapat
-	# membuang broadcast/multicast; untuk AP/router stabilitas ARP, IPv6 ND
-	# dan mDNS lebih penting daripada penghematan a few десятых ватта.
+	# Firmware power save is off on purpose: in sleep the UWE5622 can drop
+	# broadcast/multicast, and for an AP/router stable ARP, IPv6 ND and mDNS
+	# matter more than saving a few tenths of a watt.
 	#
 	# The radio is found by its device path, not as phy0/radio0
 	# (/lib/uwe5622.sh): a USB adapter present at boot registers first.

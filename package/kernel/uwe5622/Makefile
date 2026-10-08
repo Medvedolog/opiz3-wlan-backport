@@ -32,12 +32,12 @@ define KernelPackage/uwe5622
   FILES:= \
 	$(PKG_BUILD_DIR)/unisocwcn/uwe5622_bsp_sdio.ko \
 	$(PKG_BUILD_DIR)/unisocwifi/sprdwl_ng.ko
-  # TANPA AutoLoad. kmodloader memuat modules.d pada S10boot, jauh sebelum
-  # S20network; di Orange Pi Zero 3 probe SDIO uwe5622_bsp_sdio menggantung di
-  # sana dan boot berhenti total -- board menyala, link ethernet hidup, nol
-  # frame terkirim, tidak bisa dijangkau sama sekali. Kedua modul kini dimuat
-  # oleh init sprdwl-delay setelah jaringan naik, sehingga kegagalan driver
-  # hanya mematikan Wi-Fi, bukan seluruh gateway.
+  # NO AutoLoad. kmodloader loads modules.d at S10boot, long before
+  # S20network; on the Orange Pi Zero 3 the SDIO probe of uwe5622_bsp_sdio
+  # hung there and the boot stopped dead: board on, Ethernet link up, no
+  # frame sent, unreachable. Both modules are loaded by the sprdwl-delay
+  # init after the network is up, so a driver failure only takes Wi-Fi down,
+  # not the whole gateway.
 endef
 
 define KernelPackage/uwe5622/config
