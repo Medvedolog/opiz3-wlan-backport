@@ -5,6 +5,31 @@ output (or a screenshot) for every item; "works" without output does not
 count. `. /lib/uwe5622.sh` gives `uwe_phy` and `uwe_radios` (the onboard
 radio is not always phy0/radio0).
 
+## Beta 2 freeze and the release gate (from 2026-10-08)
+
+Beta 2 is frozen at: U-Boot 2026.04 with the PHY reset patch,
+kmod-uwe5622 r30, the `opiz3-emac` fallback. From here only fixes for
+what this gate or the repeater test finds go in, at most one or two
+changes per test image, so a new failure points at one change.
+
+Every test image passes this gate before it counts (about 10 minutes,
+Zero 3, Ethernet cable to a PC, UART attached). Send the output.
+
+1. Flash: `sysupgrade -n -p` from the previous image; first boot.
+   `apk info -v | grep kmod-uwe5622` shows the expected revision.
+2. First boot: the `OPiZ3` AP comes up by itself; the LTE modem connects
+   (`logread | grep "Interface 'modem' is now up"`, no
+   `couldn't find modem` after it).
+3. Ethernet, after each of: `reboot`, a power cycle, the sysupgrade
+   above. `dmesg | grep -E "EMAC reset|opiz3"` is empty and eth0 has a
+   link in the first seconds.
+4. Wi-Fi over three `reboot` in a row: every boot shows
+   `lc phy0-ap0 open` and the AP, no watchdog reset.
+5. LuCI opens over Ethernet and over the AP.
+
+Release only when the gate and the repeater test pass on the final image
+and the user says so.
+
 ## Beta 1 (r14 and later)
 
 | # | Area | How | Expected |
