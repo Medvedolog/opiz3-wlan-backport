@@ -538,9 +538,9 @@ jobs:
           		uci set "footstrap.settings.$kv"
           done
           uci commit footstrap
-          # bears tiled in the background (opiz3-pattern switches or turns it off)
+          # paw prints tiled in the background (opiz3-pattern switches or turns it off)
           [ -e /etc/footstrap/pattern.svg ] || uci -q get footstrap.settings.wallpaper >/dev/null ||
-          	/usr/sbin/opiz3-pattern bears >/dev/null
+          	/usr/sbin/opiz3-pattern paws >/dev/null
           exit 0
           EOF
           sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-footstrap-default
