@@ -10,7 +10,8 @@ trusts. What is in the image and why:
 
 ## New since beta 1
 
-- **Repeater (access point and client on one radio).** Each interface now
+- **Repeater (access point and client on one radio), experimental** — see
+  Known limitations before using it. Each interface now
   gets its own MAC: the driver takes the address of a new interface
   (`NL80211_FEATURE_MAC_ON_CREATE`) and passes it to the firmware, and
   OpenWrt no longer reuses (renames) interfaces of this radio. Put the
@@ -25,6 +26,10 @@ trusts. What is in the image and why:
   does not boot on 1.5 GB boards).
 - **USB Wi-Fi adapters** are tied to their MAC and no longer added as a new
   radio on every boot (the H616/H618 USB bus numbers change between boots).
+- **LTE modem at boot**: bringing Wi-Fi up no longer restarts the modem
+  interface while ModemManager is still probing it (it stayed down until
+  something retried).
+- LuCI theme Footstrap 0.14.14.
 - Docs: where the chip, firmware and driver come from and under which
   terms; the firmware is a TV-box build (`sc2355_marlin3_lite_ott`), which
   explains most of its access point limits.
@@ -47,9 +52,15 @@ trusts. What is in the image and why:
 - Repeater: set the radio channel to the uplink's channel. When the uplink
   is on another channel the chip moves the AP to it (seen once in testing);
   clients of the AP may drop and have to reconnect.
-- Repeater: during testing the board hung once on `firewall reload` and
-  rebooted once by itself shortly after boot, both with the client
-  interface up; not reproduced yet, under investigation.
+- **Repeater can hang the board.** With the AP and the client both on,
+  every restart of the Wi-Fi (LuCI "Save & Apply" on the wireless page,
+  `wifi`, the AP moving to the uplink's channel) carries a risk: in a
+  stress test about one in ten restarts froze the board; the hardware
+  watchdog reboots it after ~16 s. Less often the Wi-Fi firmware crashes
+  instead and comes back by itself in ~15 s. The AP alone (no client)
+  passed the same test cleanly. Cause not found yet (no kernel output on
+  the serial console); use the repeater where an occasional reboot is
+  acceptable, and change Wi-Fi settings with the client disabled.
 - `channel auto` does not work for the AP; pick a channel.
 - No per-client signal (RSSI) and RX rate in AP mode; the firmware does
   not report them.
@@ -94,7 +105,8 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
 
 ## Что нового по сравнению с beta 1
 
-- **Репитер (точка доступа и клиент на одном радио).** У каждого интерфейса
+- **Репитер (точка доступа и клиент на одном радио), экспериментально** —
+  сначала прочтите «Известные ограничения». У каждого интерфейса
   теперь свой MAC: драйвер принимает адрес нового интерфейса и передаёт его
   прошивке, а OpenWrt больше не переиспользует интерфейсы этого радио.
   Канал точки ставьте равным каналу аплинка.
@@ -110,6 +122,10 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   на таких платах не загружается).
 - **USB-свистки Wi-Fi** привязываются к своему MAC и больше не добавляются
   новым радио при каждой загрузке (на H616/H618 номера USB-шин меняются).
+- **LTE-модем при загрузке**: запуск Wi-Fi больше не перезапускает
+  интерфейс модема, пока ModemManager его опрашивает (раньше модем
+  оставался выключенным, пока его кто-нибудь не поднимал).
+- Тема LuCI Footstrap 0.14.14.
 - Документация: откуда чип, прошивка и драйвер и под какими лицензиями;
   прошивка собрана для ТВ-приставок (`sc2355_marlin3_lite_ott`) — отсюда
   большинство ограничений режима точки доступа.
@@ -132,9 +148,16 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
 - Репитер: канал радио ставьте равным каналу аплинка. Если аплинк на
   другом канале, чип переводит точку на него (замечено один раз); клиенты
   точки при этом могут отвалиться и переподключиться.
-- Репитер: в тестах плата один раз зависла на `firewall reload` и один раз
-  сама перезагрузилась вскоре после старта, оба раза с поднятым клиентом;
-  пока не воспроизведено, разбираемся.
+- **Репитер может вешать плату.** Когда включены и точка, и клиент,
+  каждый перезапуск Wi-Fi («Сохранить и применить» на странице
+  беспроводной сети, `wifi`, переезд точки на канал аплинка) — риск: в
+  нагрузочном тесте примерно один перезапуск из десяти вешал плату,
+  аппаратный watchdog перезагружает её через ~16 с. Реже вместо этого
+  падает прошивка Wi-Fi и сама поднимается через ~15 с. Одна точка без
+  клиента тот же тест прошла чисто. Причина пока не найдена (в
+  последовательной консоли ядро ничего не пишет); используйте репитер там,
+  где редкая перезагрузка допустима, а настройки Wi-Fi меняйте с
+  выключенным клиентом.
 - `channel auto` для точки не работает — выберите канал.
 - Нет уровня сигнала (RSSI) и RX-скорости клиентов в режиме точки:
   прошивка их не отдаёт.
