@@ -37,13 +37,19 @@ trusts. What is in the image and why:
 - Zero 3 (1 GB): boots with U-Boot 2026.04; `sysupgrade -n -p` over the
   network from the r19 test image; the first-boot AP came up by itself
   (5 GHz channel 36, VHT80, 34 s after power-on).
-- TO BE FILLED IN BEFORE RELEASE: repeater, 1.5 GB board, USB adapter.
+- Repeater on the Zero 3: client to a phone hotspot and the `OPiZ3` AP on
+  one radio, 2.4 GHz channel 1, separate MACs (`1c:79:…` AP, `1e:79:…`
+  client); LAN clients reach the internet through the hotspot.
+- TO BE FILLED IN BEFORE RELEASE: 1.5 GB board, USB adapter.
 
 ## Known limitations
 
-- Repeater: the access point does not follow the uplink by itself. Set the
-  radio channel to the uplink's channel; if the uplink moves to another
-  channel, the client drops until you change it.
+- Repeater: set the radio channel to the uplink's channel. When the uplink
+  is on another channel the chip moves the AP to it (seen once in testing);
+  clients of the AP may drop and have to reconnect.
+- Repeater: during testing the board hung once on `firewall reload` and
+  rebooted once by itself shortly after boot, both with the client
+  interface up; not reproduced yet, under investigation.
 - `channel auto` does not work for the AP; pick a channel.
 - No per-client signal (RSSI) and RX rate in AP mode; the firmware does
   not report them.
@@ -116,13 +122,19 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
 - Zero 3 (1 ГБ): загружается с U-Boot 2026.04; `sysupgrade -n -p` по сети с
   тестового образа r19; точка при первой загрузке поднялась сама (5 ГГц,
   канал 36, VHT80, через 34 с после включения).
-- ЗАПОЛНИТЬ ПЕРЕД ВЫПУСКОМ: репитер, плата на 1,5 ГБ, USB-свисток.
+- Репитер на Zero 3: клиент к хотспоту телефона и точка `OPiZ3` на одном
+  радио, 2,4 ГГц канал 1, разные MAC (`1c:79:…` точка, `1e:79:…` клиент);
+  клиенты LAN выходят в интернет через хотспот.
+- ЗАПОЛНИТЬ ПЕРЕД ВЫПУСКОМ: плата на 1,5 ГБ, USB-свисток.
 
 ## Известные ограничения
 
-- Репитер: точка сама за аплинком не переходит. Канал радио ставьте равным
-  каналу аплинка; если аплинк сменит канал, клиент отвалится, пока не
-  поменяете.
+- Репитер: канал радио ставьте равным каналу аплинка. Если аплинк на
+  другом канале, чип переводит точку на него (замечено один раз); клиенты
+  точки при этом могут отвалиться и переподключиться.
+- Репитер: в тестах плата один раз зависла на `firewall reload` и один раз
+  сама перезагрузилась вскоре после старта, оба раза с поднятым клиентом;
+  пока не воспроизведено, разбираемся.
 - `channel auto` для точки не работает — выберите канал.
 - Нет уровня сигнала (RSSI) и RX-скорости клиентов в режиме точки:
   прошивка их не отдаёт.
