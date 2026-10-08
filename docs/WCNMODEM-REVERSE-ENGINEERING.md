@@ -2708,3 +2708,29 @@ unmodified until both are done:
 A modified firmware is published only as a separate debug package, never in
 the images, and only once the right to redistribute a modified binary is
 established (the firmware is proprietary).
+
+
+## 68. CP2 firmware logging traced end-to-end (2026-10-08, static)
+
+Full source-level research: [UWE5622-CP2-LOG-STATIC-ANALYSIS.md](UWE5622-CP2-LOG-STATIC-ANALYSIS.md).
+
+- \`switch_cp2_log(flag)\` in the pinned vendor \`loopcheck.c\` sends
+  \`at+armlog=1/0\r\n\` over SDIO AT TX and waits up to 3 s for the
+  reply. Allwinner's \`CONFIG_CPLOG_DEBUG\` is not enabled: after
+  \`get_cp2_version\`, normal boot invokes \`switch_cp2_log(false)\`.
+- \`/proc/mdbg/at_cmd\` is an existing host control interface. Writing
+  \`at+armlog=1\` first invokes \`wcn_debug_init()\` to prepare the
+  file sink and then forwards the command. The AT reply arrives on RX 13;
+  logs arrive **separately** on SDIO RX 15.
+- With no \`CONFIG_WCND\` in our Allwinner profile, log RX dispatches
+  into \`log_rx_callback()\`, **not** \`mdbg_ring_write()\`. Thus neither
+  \`dmesg\` nor \`/dev/slog_wcn0\` is the normal sink. Vendor defaults may
+  create \`/etc/unisoc_cp2log_*.txt\`: dangerous for OpenWrt overlay.
+- The pinned \`wcnmodem.bin\` contains AT diagnostic command strings
+  \`+ARMLOG\`, \`+LOGLEVEL\`, \`+LOGSWITCH\`, \`+FLUSHWCNLOG\`; their detailed
+  CP-side implementations may be in ROM. No proven stock message exposes
+  the per-LUT pre-filter \`sum/count\` values needed to resolve RSSI.
+- This is **static analysis only**; no firmware, driver, image or
+  router configuration changed. Enabling or patching firmware logging is
+  postponed until after the repeater beta2 investigations.
+
