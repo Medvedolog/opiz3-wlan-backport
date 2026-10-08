@@ -2623,3 +2623,24 @@ in `wcnmodem.bin` and cannot be read statically. Open, on hardware:
 The regulatory rules themselves (channels, power) go to the firmware
 separately (`WIFI_CMD_SET_REGDOM` from the driver's reg notifier) and do
 not depend on the Country IE.
+
+## 65. A TV-box firmware: what the build identity says (2026-10-08)
+
+Facts:
+
+- The firmware reports `Platform Version: MARLIN3_19B_W21.05.3`,
+  `Project Version: sc2355_marlin3_lite_ott`, built 2021-12-15 (every boot
+  log, `WCND at cmd read`).
+- `marlin3_lite` is the chip: the vendor BSP calls the UWE5622 Marlin3 Lite
+  (`*_M3L` sizes in `uwe562x_glb.h`); it is not a "lite firmware" flag.
+- `ott` is the product line the build is for: over-the-top TV boxes.
+- The vendor host driver is built with `-DOTT_UWE` (unisocwifi/Makefile),
+  which switches the TX descriptor offsets and a TLV in `WIFI_CMD_GET_INFO`
+  handling (`cmdevt.c`, `tx_msg.c`) to the OTT variant.
+- No newer public `wcnmodem.bin` for the UWE5622 is known.
+
+Reading (not a vendor statement): the firmware is tuned for a TV box that
+joins a home network. Its AP side is minimal and fragile, which matches
+what this project kept running into: channel from the beacon IEs (§44),
+asserts on channels it cannot tune (§45), no per-peer signal/rate in AP
+mode (§37–§43, §56), beacon assembly in ROM (§64).

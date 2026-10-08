@@ -42,6 +42,13 @@ What sets it apart from earlier builds:
 - **Прошивка `wcnmodem.bin` разобрана.** Найдено, почему 5 ГГц не поднимались,
   где хранятся скорость и RSSI клиентов и почему прошивка падает. Всё описано
   в [docs/](docs/).
+- **Откуда большинство странностей.** Единственная доступная прошивка модуля
+  собрана для проекта `sc2355_marlin3_lite_ott` (Marlin3 Lite — это чип,
+  OTT — ТВ-приставки), и драйвер вендора тоже собирается с `OTT_UWE`. Модуль
+  делался прежде всего как клиент Wi-Fi в приставке; режим точки доступа в
+  прошивке минимальный: канал берётся из маяка, на неподходящем канале она
+  падает, сигнал клиентов не отдаёт, маяк собирает ПЗУ чипа. Это наш вывод
+  из разбора, а не заявление вендора ([§65](docs/WCNMODEM-REVERSE-ENGINEERING.md)).
 - **Что работает, что ждёт проверки и что не сделано** — в разделе
   [Status](#status). Скачать образ — в разделе [Download](#download).
 
@@ -51,6 +58,7 @@ What sets it apart from earlier builds:
 - [Boards](#boards)
 - [Performance](#performance)
 - [Download](#download)
+- [Background: a TV-box Wi-Fi chip](#background-a-tv-box-wi-fi-chip)
 - [Background: earlier attempts](#background-earlier-attempts)
 - [What this project adds](#what-this-project-adds)
 - [What we are still working on](#what-we-are-still-working-on)
@@ -201,6 +209,22 @@ The default image includes:
 The full list, with the reason for each package, is in
 [docs/IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md). Anything else can be
 installed with `apk`.
+
+## Background: a TV-box Wi-Fi chip
+
+The only public firmware for the module, `wcnmodem.bin`
+`MARLIN3_19B_W21.05.3` (2021-12-15), names its project
+`sc2355_marlin3_lite_ott`: Marlin3 Lite is the chip (UWE5622, "M3L" in the
+vendor BSP), OTT is the TV-box / set-top-box product line. The vendor host
+driver is built with `-DOTT_UWE` too. The module was made first of all as
+the Wi-Fi client of a TV box, and the firmware's access point mode is thin:
+the AP channel comes from the beacon IEs (§44), an unsupported channel makes
+the firmware assert instead of failing the command (§45), no per-client
+signal or rate is reported in AP mode (§37–§43), and the beacon is
+assembled in ROM (§64). That reading is ours, from the reverse engineering,
+not a vendor statement; it explains why most of this project is
+workarounds around the firmware. See
+[§65](docs/WCNMODEM-REVERSE-ENGINEERING.md).
 
 ## Background: earlier attempts
 
