@@ -71,10 +71,24 @@ uwe_load_wifi() {
 	/sbin/insmod sprdwl_ng disable_powersave=1 $opts
 }
 
-# wifi up/down for the onboard radio(s) only
+# wifi up/down for the onboard radio(s) only. "up" asks netifd directly:
+# "/sbin/wifi up" also runs "ubus call network reload", which restarts
+# every interface still being set up, e.g. an LTE modem ModemManager is
+# probing at boot (it went down and stayed down until something retried).
+# A radio netifd does not know yet (config just created) needs the
+# reload, so fall back to it then. After a config change call
+# "ubus call network reload" first.
 uwe_wifi() {
 	local r
 	for r in $(uwe_radios); do
-		/sbin/wifi "$1" "$r"
+		if [ "$1" = up ]; then
+			ubus call network.wireless up "{\"device\":\"$r\"}" 2>/dev/null || {
+				ubus call network reload
+				sleep 2
+				ubus call network.wireless up "{\"device\":\"$r\"}"
+			}
+		else
+			/sbin/wifi "$1" "$r"
+		fi
 	done
 }

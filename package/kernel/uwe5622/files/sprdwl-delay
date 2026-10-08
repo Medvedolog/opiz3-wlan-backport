@@ -37,6 +37,9 @@ start_service() {
 	# netifd load it (or "wifi up" finds no radio0), so
 	# that the htmode clamp sees it, and drop LuCI's menu cache,
 	# built while there was no wireless config, so "Wireless" shows up.
+	# The network is reloaded only when the wireless config changed here:
+	# a reload at this point (~35 s) restarts the LTE modem interface while
+	# ModemManager is still probing it, and it stays down.
 	/usr/sbin/uwe5622-iwinfo-name
 	/usr/sbin/uwe5622-hostap-macaddr
 
@@ -48,9 +51,11 @@ start_service() {
 		 sleep 5; \
 		 [ -d /sys/module/sprdwl_ng ] || uwe_load_wifi || exit 1; \
 		 uwe_wait_phy 30 >/dev/null || exit 1; \
-		 [ -n "$(uwe_radios)" ] || /sbin/wifi config; \
-		 /usr/sbin/uwe5622-default-ap && { ubus call network reload; sleep 2; }; \
-		 /usr/sbin/uwe5622-clamp-htmode; \
+		 c=0; \
+		 [ -n "$(uwe_radios)" ] || { /sbin/wifi config; c=1; }; \
+		 /usr/sbin/uwe5622-default-ap && c=1; \
+		 /usr/sbin/uwe5622-clamp-htmode; [ $? = 2 ] && c=1; \
+		 [ $c = 0 ] || { ubus call network reload; sleep 2; }; \
 		 rm -f /tmp/luci-indexcache*; \
 		 uwe_wifi up'
 	procd_set_param stdout 1

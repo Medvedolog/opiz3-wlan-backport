@@ -19,5 +19,5 @@ reload() {
 	/usr/sbin/uwe5622-clamp-htmode
 	[ $? = 2 ] || return 0
 	# let netifd finish the reload LuCI started, then apply the fix
-	( sleep 3; uwe_wifi up ) >/dev/null 2>&1 &
+	( sleep 3; ubus call network reload; sleep 2; uwe_wifi up ) >/dev/null 2>&1 &
 }
