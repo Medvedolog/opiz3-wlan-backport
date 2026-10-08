@@ -804,12 +804,15 @@ jobs:
           whole image, bootloader included: without it OpenWrt 25.12.5's sunxi sysupgrade
           writes the partitions only (its U-Boot "dd of=\$diskdev" lacks /dev/):
 
-              cd /tmp && wget $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
-              sysupgrade -n -p /tmp/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+              wget -O /tmp/fw.img.gz $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+              sysupgrade -n -p /tmp/fw.img.gz
+
+          (-O is needed: OpenWrt's wget follows GitHub's redirect and would name the file
+          after the redirect URL.)
 
           Or only the driver (same signing key):
 
-              cd /tmp && wget $BASE/<kmod-uwe5622-...apk> && apk add /tmp/kmod-uwe5622-*.apk && reboot
+              wget -O /tmp/kmod.apk $BASE/<kmod-uwe5622-...apk> && apk add /tmp/kmod.apk && reboot
           EOF
           # the tag moves to this commit; the release is replaced as a whole
           gh release delete "$TAG" -R "$R" -y --cleanup-tag 2>/dev/null || true

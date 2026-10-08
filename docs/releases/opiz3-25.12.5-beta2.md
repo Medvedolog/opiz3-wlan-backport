@@ -58,8 +58,11 @@ microSD card.
 
 From beta 1 without a card:
 
-    cd /tmp && wget <link to the image of this release>
-    sysupgrade -n -p /tmp/<image>.img.gz
+    wget -O /tmp/fw.img.gz <link to the image of this release>
+    sysupgrade -n -p /tmp/fw.img.gz
+
+`-O` is needed: OpenWrt's `wget` follows GitHub's redirect and would save
+the file under the redirect's name.
 
 `-p` writes the whole image including the bootloader: without it
 OpenWrt 25.12.5's sysupgrade on sunxi does not write U-Boot. `-n` starts
@@ -131,8 +134,11 @@ microSD.
 
 С beta 1 без карты:
 
-    cd /tmp && wget <ссылка на образ этого релиза>
-    sysupgrade -n -p /tmp/<образ>.img.gz
+    wget -O /tmp/fw.img.gz <ссылка на образ этого релиза>
+    sysupgrade -n -p /tmp/fw.img.gz
+
+`-O` обязателен: `wget` в OpenWrt после переадресации GitHub сохраняет
+файл под именем из адреса переадресации.
 
 `-p` записывает образ целиком, вместе с загрузчиком: без него sysupgrade
 OpenWrt 25.12.5 на sunxi U-Boot не обновляет. `-n` — с нуля (снова первая
