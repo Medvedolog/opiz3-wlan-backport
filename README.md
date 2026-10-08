@@ -405,8 +405,15 @@ cat /sys/kernel/debug/sprdwl_debug/peer_stats     # host per-client counters
 cat /sys/kernel/debug/sprdwl_debug/cp_sta_table   # firmware rate/RSSI table
 ```
 
-From a PC, `scripts/collect-debug.sh <ip>` collects a full diagnostic bundle,
-with the Wi-Fi keys masked. Attach it to an issue.
+On the board, `scripts/collect-debug.sh` collects a full diagnostic bundle
+into `/tmp` (passwords and keys masked):
+
+```sh
+wget -O /tmp/collect-debug.sh https://raw.githubusercontent.com/Medvedolog/opiz3-wlan-backport/main/scripts/collect-debug.sh
+sh /tmp/collect-debug.sh
+```
+
+Fetch the archive with `scp -O` and attach it to a report.
 
 ## Documentation
 

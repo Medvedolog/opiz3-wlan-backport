@@ -31,6 +31,10 @@ power cycle / sysupgrade, Wi-Fi over three reboots, LuCI over cable and
 AP. Then, if you can: repeater (client + AP), USB Ethernet and USB Wi-Fi
 adapters, the 1.5 GB board, Zero 2 / Zero 2W.
 
+For a report, run `scripts/collect-debug.sh` on the board (see the
+README) and attach the archive. / Для отчёта запустите на плате
+`scripts/collect-debug.sh` (см. README) и приложите архив.
+
 ## Known problems / Известные проблемы
 
 - Repeater (client + AP) can freeze the board on a Wi-Fi restart (about 1
