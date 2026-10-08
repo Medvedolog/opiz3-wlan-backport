@@ -82,6 +82,10 @@ uwe_wifi() {
 	local r
 	for r in $(uwe_radios); do
 		if [ "$1" = up ]; then
+			# down first, as "wifi up" does: it drops a setup retry
+			# netifd may still have pending, so the radio is not set
+			# up twice at once
+			ubus call network.wireless down "{\"device\":\"$r\"}" 2>/dev/null
 			ubus call network.wireless up "{\"device\":\"$r\"}" 2>/dev/null || {
 				ubus call network reload
 				sleep 2
