@@ -116,6 +116,7 @@ interfaces). UART console attached.
 | AP only, 20 cycles | clean |
 | AP + client, ~8 cycles | one firmware assert (`WCN Assert in rf_marlin.c line 1016, pri20_offset == NO_OFFSET`) while a connected client was torn down; `uwe5622-recover` brought Wi-Fi back as phy1 in ~13 s; cfg80211 `WARNING` (core.c:1321) on the driver unload, no oops |
 | AP + client, hardware watchdog stopped | hard hang on cycle 2, ~2 s after the AP came up (client associating): no kernel output on UART, magic SysRq over UART break did not answer |
+| AP + client, station started 3 s after the AP (test patch of wpa_supplicant.uc) | board reset during cycle 4: the delay does not help, removed again (r26) |
 
 The hard hang leaves no trace: the kernel has no soft/hard lockup detector
 (`/proc/sys/kernel/watchdog*` absent) and the CPUs stop answering the UART,

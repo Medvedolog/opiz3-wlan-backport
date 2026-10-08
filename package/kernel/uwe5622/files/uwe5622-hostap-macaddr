@@ -40,39 +40,14 @@ changed=1
 fi
 fi
 
-# Start the station a few seconds after the AP, not right after it.
-#
-# With an AP and a station on the radio, hostapd stops wpa_supplicant,
-# brings the AP up and then lets wpa_supplicant create the station at once
-# (phy_set_state stop=false in /usr/share/hostap/wpa_supplicant.uc). In a
-# repeater stress test the board froze about once in ten Wi-Fi restarts,
-# always while both interfaces were being created, never with the AP alone
-# (TEST-PLAN, 2026-10-08). For this phy the station is created 3 s later; a
-# stop in the meantime cancels it.
+# a test version delayed the station in wpa_supplicant.uc (did not help
+# against the repeater hang, TEST-PLAN 2026-10-08): take it out again
 W=/usr/share/hostap/wpa_supplicant.uc
-if [ -f "$W" ] && ! grep -q 'uwe5622: station after the AP' "$W" &&
-   [ "$(grep -c '^				start_pending(name);$' "$W")" = 1 ] &&
-   [ "$(grep -c '^			if (req.args.stop) {$' "$W")" = 1 ]; then
-	sed -i '/^				start_pending(name);$/c\
-				/* uwe5622: station after the AP (repeater: creating both at once froze the board) */\
-				if (index(readfile(`/sys/class/ieee80211/${req.args.phy}/device/modalias`) ?? "", "platform:unisoc_wifi") == 0) {\
-					if (!wpas.data.uwe_start)\
-						wpas.data.uwe_start = {};\
-					if (wpas.data.uwe_start[name])\
-						wpas.data.uwe_start[name].cancel();\
-					wpas.data.uwe_start[name] = uloop.timer(3000, () => {\
-						delete wpas.data.uwe_start[name];\
-						start_pending(name);\
-					});\
-				} else\
-					start_pending(name);' "$W"
-	sed -i '/^			if (req.args.stop) {$/a\
-				/* uwe5622: drop a station start still waiting for its delay */\
-				if (wpas.data.uwe_start && wpas.data.uwe_start[name]) {\
-					wpas.data.uwe_start[name].cancel();\
-					delete wpas.data.uwe_start[name];\
-				}' "$W"
-	logger -t uwe5622 "wifi-scripts: the station of the UWE5622 radio starts 3 s after the AP ($W)"
+if [ -f "$W" ] && grep -q 'uwe5622: station after the AP' "$W"; then
+	awk '/uwe5622: drop a station start still waiting/ { skip = 4; next }
+	     /uwe5622: station after the AP/ { skip = 11; print "\t\t\t\tstart_pending(name);"; next }
+	     skip { skip--; next } { print }' "$W" > "$W.uwe" && cat "$W.uwe" > "$W"
+	rm -f "$W.uwe"
 	changed=1
 fi
 
