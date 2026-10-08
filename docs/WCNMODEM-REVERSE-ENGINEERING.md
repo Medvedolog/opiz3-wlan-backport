@@ -2662,3 +2662,32 @@ offset is unset, and the RF code checks it on the next tune. Not
 reproduced on purpose yet; the AP-only loop never hit it. The chip reset
 path (`marlin_cp2_reset` → `uwe5622-recover`) worked.
 
+
+## 67. Static follow-up: why ACK-RSSI candidate remains static (2026-10-08)
+
+Detailed fresh Thumb-2 reconstruction, exact instruction excerpts, reproducible
+analyzer and conclusions:
+[UWE5622-ACK-RSSI-STATIC-ANALYSIS.md](UWE5622-ACK-RSSI-STATIC-ANALYSIS.md)
+and [tools/wcnmodem-ack-rssi.py](../tools/wcnmodem-ack-rssi.py).
+
+- Firmware maps a 0x900-byte (32 x 0x48) TX-statistics buffer to bus
+  0x40341680 and sets its address in the MAC configuration (0x1532a8,
+  0x1532e0).
+- Firmware's 0x1539b0 snapshots the chosen LUT's 0x48-byte record and can
+  clear that record. 0x128554 calls it with clear=1: a transient zero in
+  hardware RAM would not prove sampling is disabled.
+- At 0x128710-0x128750 the signed sum/count from offsets +0x40/+0x44
+  enters software accumulation only if count > 0 and sum/count is in
+  [-128,127]. At 0x126d54 the software accumulator is smoothed into
+  sta+0x3a5 after the same range test and reset even on rejection.
+- Therefore the stale hardware-test value at sta+0x3a5 does **not** prove
+  that the hardware ACK count stays at zero. Candidate explanations are:
+  no hardware samples; a signed-average range rejection (possible
+  scaling/unit mismatch); a conditional software processing path; or
+  incorrect interpretation of the fields as RSSI. None is proven.
+- MAC/ROM configuration and the meaning of CHIP_SLP bits on UWE5622 are
+  still not established. Do **not** enable wifi_ram_force=1 or read unknown
+  power-domain windows to resolve this. No router or firmware was modified.
+
+This section refines, rather than replaces, the mapping in sections 47-48
+and 63.2. RX rate remains deliberately out of scope.

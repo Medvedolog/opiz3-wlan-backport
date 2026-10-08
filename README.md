@@ -414,13 +414,15 @@ with the Wi-Fi keys masked. Attach it to an issue.
 |---|---|
 | [IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md) | What is in the image and why |
 | [TEST-PLAN.md](docs/TEST-PLAN.md) | Hardware checks before a release, with commands; client (STA) mode |
-| [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Firmware reverse engineering, revisions 1–4 (§1–§60) |
+| [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Firmware reverse engineering, including §67 ACK-RSSI static follow-up |
 | [NEW-DRIVER-ARCHITECTURE.md](docs/NEW-DRIVER-ARCHITECTURE.md) | New driver design, SDIO/command protocol map, milestones |
 | [UWE5622-DRIVER-AUDIT.md](docs/UWE5622-DRIVER-AUDIT.md) | Audit of the vendor driver and the fix plan |
 | [TECHNICAL-SPEC.md](docs/TECHNICAL-SPEC.md) | Requirements, acceptance tests, CI and package policy |
 | [PORTING-NOTES.md](docs/PORTING-NOTES.md) | Porting decisions for OpenWrt 25.12 / Linux 6.12 |
 | [HANDOFF.md](docs/HANDOFF.md) | Historical snapshot (2026-09-30) of the earlier work |
+| [UWE5622-ACK-RSSI-STATIC-ANALYSIS.md](docs/UWE5622-ACK-RSSI-STATIC-ANALYSIS.md) | Static disassembly, hypotheses, ACK-RSSI evidence and reproducible method |
 | [tools/wcnmodem-re.py](tools/wcnmodem-re.py) | Helper for the firmware analysis |
+| [tools/wcnmodem-ack-rssi.py](tools/wcnmodem-ack-rssi.py) | Reproduce the pinned firmware TX-statistics/RSSI disassembly |
 
 ## Origin and licenses
 
