@@ -592,6 +592,7 @@ jobs:
           chk 'grep -q "\"platform:unisoc_wifi\"" "$ROOT/usr/share/libiwinfo/devices.txt"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-iwinfo-name"'
           chk 'test -x "$ROOT/usr/sbin/uwe5622-hostap-macaddr" && grep -q "^	let reuse_ifname = find_reusable_wdev(phyidx);$" "$ROOT/usr/share/hostap/common.uc"'
+          chk 'test "$(grep -c "^				start_pending(name);$" "$ROOT/usr/share/hostap/wpa_supplicant.uc")" = 1 && test "$(grep -c "^			if (req.args.stop) {$" "$ROOT/usr/share/hostap/wpa_supplicant.uc")" = 1'
           chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
           chk 'test -f "$ROOT/usr/share/rpcd/ucode/opiz3.uc"'
           chk 'test -f "$ROOT/www/luci-static/resources/view/status/include/15_opiz3.js"'

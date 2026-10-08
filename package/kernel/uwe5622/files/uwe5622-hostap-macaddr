@@ -17,16 +17,18 @@
 # applied again after wifi-scripts is upgraded. hostapd and wpa_supplicant
 # load common.uc when they start: they are restarted when it changes.
 
+changed=0
 F=/usr/share/hostap/common.uc
-[ -f "$F" ] || exit 0
-grep -q 'uwe5622: never reuse' "$F" && exit 0
+[ -f "$F" ] || F=
+[ -n "$F" ] && grep -q 'uwe5622: never reuse' "$F" && F=
+if [ -n "$F" ]; then
 # an earlier test version of this script
 if grep -q 'uwe5622: reused interface MAC' "$F"; then
 	awk '/uwe5622: reused interface MAC/ { skip = 3 } skip { skip--; next } { print }' \
 		"$F" > "$F.uwe" && cat "$F.uwe" > "$F"
 	rm -f "$F.uwe"
 fi
-grep -q '^	let reuse_ifname = find_reusable_wdev(phyidx);$' "$F" || exit 0
+if grep -q '^	let reuse_ifname = find_reusable_wdev(phyidx);$' "$F"; then
 
 sed -i '/^	let reuse_ifname = find_reusable_wdev(phyidx);$/a\
 	/* uwe5622: never reuse an interface of this radio (MAC, races) */\
@@ -34,6 +36,46 @@ sed -i '/^	let reuse_ifname = find_reusable_wdev(phyidx);$/a\
 		reuse_ifname = null;' "$F"
 
 logger -t uwe5622 "wifi-scripts: interfaces of the UWE5622 radio are always created anew ($F)"
-[ -x /etc/init.d/wpad ] && /etc/init.d/wpad running 2>/dev/null &&
+changed=1
+fi
+fi
+
+# Start the station a few seconds after the AP, not right after it.
+#
+# With an AP and a station on the radio, hostapd stops wpa_supplicant,
+# brings the AP up and then lets wpa_supplicant create the station at once
+# (phy_set_state stop=false in /usr/share/hostap/wpa_supplicant.uc). In a
+# repeater stress test the board froze about once in ten Wi-Fi restarts,
+# always while both interfaces were being created, never with the AP alone
+# (TEST-PLAN, 2026-10-08). For this phy the station is created 3 s later; a
+# stop in the meantime cancels it.
+W=/usr/share/hostap/wpa_supplicant.uc
+if [ -f "$W" ] && ! grep -q 'uwe5622: station after the AP' "$W" &&
+   [ "$(grep -c '^				start_pending(name);$' "$W")" = 1 ] &&
+   [ "$(grep -c '^			if (req.args.stop) {$' "$W")" = 1 ]; then
+	sed -i '/^				start_pending(name);$/c\
+				/* uwe5622: station after the AP (repeater: creating both at once froze the board) */\
+				if (index(readfile(`/sys/class/ieee80211/${req.args.phy}/device/modalias`) ?? "", "platform:unisoc_wifi") == 0) {\
+					if (!wpas.data.uwe_start)\
+						wpas.data.uwe_start = {};\
+					if (wpas.data.uwe_start[name])\
+						wpas.data.uwe_start[name].cancel();\
+					wpas.data.uwe_start[name] = uloop.timer(3000, () => {\
+						delete wpas.data.uwe_start[name];\
+						start_pending(name);\
+					});\
+				} else\
+					start_pending(name);' "$W"
+	sed -i '/^			if (req.args.stop) {$/a\
+				/* uwe5622: drop a station start still waiting for its delay */\
+				if (wpas.data.uwe_start && wpas.data.uwe_start[name]) {\
+					wpas.data.uwe_start[name].cancel();\
+					delete wpas.data.uwe_start[name];\
+				}' "$W"
+	logger -t uwe5622 "wifi-scripts: the station of the UWE5622 radio starts 3 s after the AP ($W)"
+	changed=1
+fi
+
+[ "$changed" = 1 ] && [ -x /etc/init.d/wpad ] && /etc/init.d/wpad running 2>/dev/null &&
 	/etc/init.d/wpad restart
 exit 0
