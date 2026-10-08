@@ -116,7 +116,7 @@ interfaces). UART console attached.
 | AP only, 20 cycles | clean |
 | AP + client, ~8 cycles | one firmware assert (`WCN Assert in rf_marlin.c line 1016, pri20_offset == NO_OFFSET`) while a connected client was torn down; `uwe5622-recover` brought Wi-Fi back as phy1 in ~13 s; cfg80211 `WARNING` (core.c:1321) on the driver unload, no oops |
 | AP + client, hardware watchdog stopped | hard hang on cycle 2, ~2 s after the AP came up (client associating): no kernel output on UART, magic SysRq over UART break did not answer |
-| AP + client, station started 3 s after the AP (test patch of wpa_supplicant.uc) | board reset during cycle 4: the delay does not help, removed again (r26) |
+| AP + client, station started 3 s after the AP (test patch of wpa_supplicant.uc) | board froze in cycle 4 right after the AP was torn down (`phy0-ap0: left promiscuous mode`, then nothing): the hang is in the teardown of the connected station, not in creating the interfaces; the delay is removed again (r26) |
 
 The hard hang leaves no trace: the kernel has no soft/hard lockup detector
 (`/proc/sys/kernel/watchdog*` absent) and the CPUs stop answering the UART,
@@ -124,8 +124,12 @@ which points at a bus-level stall (SDIO/MMIO access to the chip) rather than
 a software deadlock. With the hardware watchdog running (default) the board
 resets after ~16 s.
 
-Next: an A/B kmod with the per-interface MAC code of patch 290 switchable
-by a module parameter, to tell the vendor path from ours.
+Both the firmware assert and this hang come right after the teardown of a
+*connected* station starts (deauth, then the interface is deleted while the
+firmware is still handling it). Next: disconnect the station and wait for
+the firmware's disconnect event before deleting the interface. After one
+watchdog reset the Ethernet failed to probe (`EMAC reset timeout`, -110)
+until a power cycle.
 
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 
