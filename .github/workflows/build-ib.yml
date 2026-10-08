@@ -139,14 +139,43 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-setuptools rsync swig unzip zlib1g-dev file wget zstd
 
+      - name: Cache the SDK tarball
+        if: steps.repo.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/openwrt-dl
+          key: openwrt-sdk-${{ env.RELEASE }}-${{ env.SDK_SUFFIX }}
+
       - name: Download SDK ${{ env.RELEASE }}
         if: steps.repo.outputs.cache-hit != 'true'
         run: |
           BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
           SDK=openwrt-sdk-$RELEASE-$SDK_SUFFIX
-          curl --http1.1 -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$BASE/$SDK.tar.zst"
-          tar --zstd -xf "$SDK.tar.zst"
-          rm "$SDK.tar.zst"
+          DL=$HOME/openwrt-dl
+          # downloads.openwrt.org is sometimes slow or drops HTTP/2 streams
+          # (curl 92 after ~10 min): HTTP/1.1, abort below 100 kB/s for 60 s,
+          # then mirrors; the file is checked against the release's
+          # sha256sums from downloads.openwrt.org
+          fetch() {
+            sums=$(curl --http1.1 -fsSL --retry 5 --retry-all-errors "$BASE/sha256sums")
+            want=$(echo "$sums" | awk -v f="*$1" '$2 == f || $2 == substr(f, 2) { print $1 }')
+            [ -n "$want" ] || { echo "$1 not in sha256sums"; return 1; }
+            if [ -f "$DL/$1" ] && echo "$want  $DL/$1" | sha256sum -c --quiet; then
+              echo "$1 from cache"; return 0; fi
+            mkdir -p "$DL"
+            for m in https://downloads.openwrt.org https://mirror-03.infra.openwrt.org \
+                     https://mirror.yandex.ru/openwrt https://mirrors.tuna.tsinghua.edu.cn/openwrt; do
+              url="$m/releases/$RELEASE/targets/$TARGET/$SUBTARGET/$1"
+              echo "trying $url"
+              curl --http1.1 -fL --retry 3 --retry-all-errors --retry-delay 5 \
+                   --speed-limit 102400 --speed-time 60 -o "$DL/$1" "$url" &&
+                echo "$want  $DL/$1" | sha256sum -c --quiet && return 0
+              rm -f "$DL/$1"
+            done
+            return 1
+          }
+          fetch "$SDK.tar.zst"
+          tar --zstd -xf "$DL/$SDK.tar.zst"
           mv "$SDK" sdk
 
           if [ -f "$RUNNER_TEMP/private-key.pem" ]; then
@@ -374,12 +403,41 @@ jobs:
           sudo apt-get install -y build-essential gawk gettext libncurses-dev \
             python3 rsync unzip zstd file device-tree-compiler mtools fdisk u-boot-tools
 
+      - name: Cache the ImageBuilder tarball
+        uses: actions/cache@v4
+        with:
+          path: ~/openwrt-dl
+          key: openwrt-imagebuilder-${{ env.RELEASE }}-${{ env.TARGET }}-${{ env.SUBTARGET }}
+
       - name: Download ImageBuilder ${{ env.RELEASE }}
         run: |
           BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
           IB=openwrt-imagebuilder-$RELEASE-$TARGET-$SUBTARGET.Linux-x86_64
-          curl --http1.1 -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$BASE/$IB.tar.zst"
-          tar --zstd -xf "$IB.tar.zst"
+          DL=$HOME/openwrt-dl
+          # downloads.openwrt.org is sometimes slow or drops HTTP/2 streams
+          # (curl 92 after ~10 min): HTTP/1.1, abort below 100 kB/s for 60 s,
+          # then mirrors; the file is checked against the release's
+          # sha256sums from downloads.openwrt.org
+          fetch() {
+            sums=$(curl --http1.1 -fsSL --retry 5 --retry-all-errors "$BASE/sha256sums")
+            want=$(echo "$sums" | awk -v f="*$1" '$2 == f || $2 == substr(f, 2) { print $1 }')
+            [ -n "$want" ] || { echo "$1 not in sha256sums"; return 1; }
+            if [ -f "$DL/$1" ] && echo "$want  $DL/$1" | sha256sum -c --quiet; then
+              echo "$1 from cache"; return 0; fi
+            mkdir -p "$DL"
+            for m in https://downloads.openwrt.org https://mirror-03.infra.openwrt.org \
+                     https://mirror.yandex.ru/openwrt https://mirrors.tuna.tsinghua.edu.cn/openwrt; do
+              url="$m/releases/$RELEASE/targets/$TARGET/$SUBTARGET/$1"
+              echo "trying $url"
+              curl --http1.1 -fL --retry 3 --retry-all-errors --retry-delay 5 \
+                   --speed-limit 102400 --speed-time 60 -o "$DL/$1" "$url" &&
+                echo "$want  $DL/$1" | sha256sum -c --quiet && return 0
+              rm -f "$DL/$1"
+            done
+            return 1
+          }
+          fetch "$IB.tar.zst"
+          tar --zstd -xf "$DL/$IB.tar.zst"
           mv "$IB" ib
           echo "IB_NAME=$IB" >> "$GITHUB_ENV"
 
