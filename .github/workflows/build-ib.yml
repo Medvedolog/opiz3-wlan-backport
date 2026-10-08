@@ -894,12 +894,46 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      discussions: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/releases
+
       - uses: actions/download-artifact@v4
         with:
           path: art
+
+      # one standing discussion thread for test reports: the release is
+      # replaced on every build, so nothing said under it would survive.
+      # Found by title, created on the first run; skipped if anything fails.
+      - name: Test reports thread
+        run: |
+          THREAD="Test builds: reports / Тестовые сборки: отчёты"
+          R="$GITHUB_REPOSITORY"
+          url=
+          if q=$(gh api graphql -f query='query($o:String!,$r:String!){repository(owner:$o,name:$r){id
+              discussionCategories(first:25){nodes{id name}}
+              discussions(first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{title url}}}}' \
+              -f o="${R%/*}" -f r="${R#*/}"); then
+            url=$(echo "$q" | jq -r --arg t "$THREAD" \
+              '.data.repository.discussions.nodes[] | select(.title == $t) | .url' | head -1)
+            if [ -z "$url" ]; then
+              repo=$(echo "$q" | jq -r .data.repository.id)
+              cat=$(echo "$q" | jq -r '.data.repository.discussionCategories.nodes
+                | (map(select(.name == "General")) + .)[0].id')
+              body="Reports on the test builds (pre-release opiz3-$RELEASE-test). Please give: board and RAM, the build commit (in the pre-release title), what you tested, what failed, and the output (\`logread\`, \`dmesg\`, UART lines for a hang).
+
+          Отчёты по тестовым сборкам (пререлиз opiz3-$RELEASE-test). Укажите: плату и объём памяти, коммит сборки (в заголовке пререлиза), что проверяли, что не работает, и вывод (\`logread\`, \`dmesg\`, строки UART при зависании)."
+              url=$(gh api graphql -f query='mutation($repo:ID!,$cat:ID!,$t:String!,$b:String!){createDiscussion(input:{repositoryId:$repo,categoryId:$cat,title:$t,body:$b}){discussion{url}}}' \
+                -f repo="$repo" -f cat="$cat" -f t="$THREAD" -f b="$body" \
+                -q .data.createDiscussion.discussion.url) || url=
+            fi
+          fi
+          echo "thread: ${url:-none}"
+          echo "REPORTS_URL=$url" >> "$GITHUB_ENV"
 
       - name: Test release
         run: |
@@ -922,7 +956,7 @@ jobs:
           whole image, bootloader included: without it OpenWrt 25.12.5's sunxi sysupgrade
           writes the partitions only (its U-Boot "dd of=\$diskdev" lacks /dev/):
 
-              wget -O /tmp/fw.img.gz $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+              wget -O /tmp/fw.img.gz $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-ext4-sdcard.img.gz
               sysupgrade -n -p /tmp/fw.img.gz
 
           (-O is needed: OpenWrt's wget follows GitHub's redirect and would name the file
@@ -931,7 +965,12 @@ jobs:
           Or only the driver (same signing key):
 
               wget -O /tmp/kmod.apk $BASE/<kmod-uwe5622-...apk> && apk add /tmp/kmod.apk && reboot
+
           EOF
+          if [ -n "$REPORTS_URL" ]; then
+            printf 'Reports / отчёты: %s\n\n' "$REPORTS_URL" >> notes.md
+          fi
+          cat docs/releases/test-build.md >> notes.md
           # the tag moves to this commit; the release is replaced as a whole
           gh release delete "$TAG" -R "$R" -y --cleanup-tag 2>/dev/null || true
           for i in 1 2 3; do
