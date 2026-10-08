@@ -32,6 +32,10 @@ trusts. What is in the image and why:
 - **LTE modem at boot**: bringing Wi-Fi up no longer restarts the modem
   interface while ModemManager is still probing it (it stayed down until
   something retried).
+- **Ethernet after `reboot`** (Zero 3): the port no longer stays dead until
+  the power is cycled. A warm reboot left the PHY powered down and the
+  Ethernet controller failed to start (`EMAC reset timeout`); the boot now
+  retries it, which wakes the PHY.
 - LuCI theme Footstrap 0.14.14.
 - Docs: where the chip, firmware and driver come from and under which
   terms; the firmware is a TV-box build (`sc2355_marlin3_lite_ott`), which
@@ -63,9 +67,7 @@ trusts. What is in the image and why:
   instead and comes back by itself in ~15 s. The AP alone (no client)
   passed the same test cleanly. Cause not found yet (no kernel output on
   the serial console); use the repeater where an occasional reboot is
-  acceptable, and change Wi-Fi settings with the client disabled. Once,
-  after such a reboot, the Ethernet port stayed down until the power was
-  cycled.
+  acceptable, and change Wi-Fi settings with the client disabled.
 - `channel auto` does not work for the AP; pick a channel.
 - No per-client signal (RSSI) and RX rate in AP mode; the firmware does
   not report them.
@@ -133,6 +135,10 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
 - **LTE-модем при загрузке**: запуск Wi-Fi больше не перезапускает
   интерфейс модема, пока ModemManager его опрашивает (раньше модем
   оставался выключенным, пока его кто-нибудь не поднимал).
+- **Ethernet после `reboot`** (Zero 3): порт больше не остаётся мёртвым до
+  передёргивания питания. Горячая перезагрузка оставляла PHY выключенным, и
+  контроллер Ethernet не запускался (`EMAC reset timeout`); теперь при
+  загрузке он запускается повторно, и это будит PHY.
 - Тема LuCI Footstrap 0.14.14.
 - Документация: откуда чип, прошивка и драйвер и под какими лицензиями;
   прошивка собрана для ТВ-приставок (`sc2355_marlin3_lite_ott`) — отсюда
@@ -165,8 +171,7 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   клиента тот же тест прошла чисто. Причина пока не найдена (в
   последовательной консоли ядро ничего не пишет); используйте репитер там,
   где редкая перезагрузка допустима, а настройки Wi-Fi меняйте с
-  выключенным клиентом. Один раз после такой перезагрузки Ethernet-порт
-  не поднялся до передёргивания питания.
+  выключенным клиентом.
 - `channel auto` для точки не работает — выберите канал.
 - Нет уровня сигнала (RSSI) и RX-скорости клиентов в режиме точки:
   прошивка их не отдаёт.

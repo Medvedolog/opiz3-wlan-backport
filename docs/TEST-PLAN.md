@@ -131,6 +131,15 @@ the firmware's disconnect event before deleting the interface. After one
 watchdog reset the Ethernet failed to probe (`EMAC reset timeout`, -110)
 until a power cycle.
 
+Ethernet after a manual `reboot` (2026-10-08): same failure, cable plugged
+in. The PHY (YT8531) answers on MDIO but gives no RX clock: the interface
+going down suspended it and a warm reset keeps it powered down. The failed
+probe attaches and so resumes the PHY; a second
+`echo 5020000.ethernet > /sys/bus/platform/drivers/dwmac-sun8i/bind`
+succeeds (1 Gbit/s link). The image now retries the bind in preinit
+(`/lib/preinit/15_opiz3_emac_rebind`, up to three tries, result in dmesg as
+`opiz3: 5020000.ethernet rebind ...`). Not yet checked on hardware.
+
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 
 A tester's debug archive, ext4 image, 1 GB board:

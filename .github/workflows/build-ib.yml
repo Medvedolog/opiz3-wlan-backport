@@ -541,6 +541,31 @@ jobs:
           chmod +x files/etc/uci-defaults/zz-opiz3-wan-zone
           sh -n files/etc/uci-defaults/zz-opiz3-wan-zone
 
+          # after a warm reboot the EMAC does not probe ("EMAC reset timeout",
+          # -110): the interface going down suspended the external PHY
+          # (YT8531 on the Zero 3), a warm reset keeps it powered down, and
+          # the DMA reset needs its RX clock. The failed probe attaches and so
+          # resumes the PHY; a second bind then succeeds (seen on hardware).
+          mkdir -p files/lib/preinit
+          cat > files/lib/preinit/15_opiz3_emac_rebind <<'EOF'
+          opiz3_emac_rebind() {
+          	local drv=/sys/bus/platform/drivers/dwmac-sun8i d i
+          	[ -d "$drv" ] || return 0
+          	for d in /sys/bus/platform/devices/*.ethernet; do
+          		[ -e "$d" ] && [ ! -e "$d/driver" ] || continue
+          		grep -q emac "$d/modalias" 2>/dev/null || continue
+          		for i in 1 2 3; do
+          			echo "${d##*/}" > "$drv/bind" 2>/dev/null && break
+          			sleep 1
+          		done
+          		echo "opiz3: ${d##*/} rebind after $i tries: $([ -e "$d/driver" ] && echo ok || echo failed)" > /dev/kmsg
+          	done
+          }
+          boot_hook_add preinit_main opiz3_emac_rebind
+          EOF
+          sed -i 's/^ *//' files/lib/preinit/15_opiz3_emac_rebind
+          sh -n files/lib/preinit/15_opiz3_emac_rebind
+
           # first boot of this image: uwe5622-default-ap turns the onboard
           # Wi-Fi into the OPiZ3 / OPiZ2W / OPiZ2 AP once (never on "apk upgrade")
           printf '#!/bin/sh\ntouch /etc/uwe5622-first-boot\nexit 0\n' \
