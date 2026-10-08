@@ -114,6 +114,9 @@ A tester's debug archive, ext4 image, 1 GB board:
   `zero3-dtb-add-wifi.py` are right for this board;
 - `phy0-ap0` AP `OPiZ3`, 5 GHz channel 44, VHT80, `AP-ENABLED` 34 s after
   boot; a client joined; no assert in the log;
+- first boot: the tester reports that `OPiZ3` came up by itself after
+  flashing (the archive is from a later boot: channel 44 set by hand, no
+  first-boot log line), so the first-boot AP fix is confirmed by report;
 - not covered: 1.5 GB variant, STA mode, recovery.
 
 ## Results 2026-10-06 (Zero 3, r15 image with r16/r17 fixes) → beta 1
