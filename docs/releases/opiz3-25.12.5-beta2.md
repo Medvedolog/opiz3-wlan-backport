@@ -34,9 +34,10 @@ trusts. What is in the image and why:
   something retried).
 - **Ethernet after `reboot`** (Zero 3): the port no longer stays dead until
   the power is cycled. A warm reboot left the PHY powered down and the
-  Ethernet controller failed to start (`EMAC reset timeout`). The PHY is
-  now woken again at the end of the shutdown, and the boot retries the
-  controller if it still failed.
+  Ethernet controller failed to start (`EMAC reset timeout`). U-Boot
+  2026.04 no longer resets the PHY at boot as earlier versions did; our
+  U-Boot does it again, and Linux retries the controller if it still
+  failed.
 - LuCI theme Footstrap 0.14.14.
 - Docs: where the chip, firmware and driver come from and under which
   terms; the firmware is a TV-box build (`sc2355_marlin3_lite_ott`), which
@@ -138,9 +139,10 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   оставался выключенным, пока его кто-нибудь не поднимал).
 - **Ethernet после `reboot`** (Zero 3): порт больше не остаётся мёртвым до
   передёргивания питания. Горячая перезагрузка оставляла PHY выключенным, и
-  контроллер Ethernet не запускался (`EMAC reset timeout`). Теперь PHY
-  будится заново в конце выключения, а при загрузке контроллер
-  запускается повторно, если всё же не поднялся.
+  контроллер Ethernet не запускался (`EMAC reset timeout`). U-Boot 2026.04
+  перестал сбрасывать PHY при старте, как делали прежние версии; наш U-Boot
+  снова это делает, а Linux при загрузке запускает контроллер повторно, если
+  тот всё же не поднялся.
 - Тема LuCI Footstrap 0.14.14.
 - Документация: откуда чип, прошивка и драйвер и под какими лицензиями;
   прошивка собрана для ТВ-приставок (`sc2355_marlin3_lite_ott`) — отсюда

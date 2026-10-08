@@ -1,0 +1,18 @@
+diff --git a/drivers/net/phy/phy.c b/drivers/net/phy/phy.c
+index b58283fe3d..7f3e1eeeba 100644
+--- a/drivers/net/phy/phy.c
++++ b/drivers/net/phy/phy.c
+@@ -842,6 +842,13 @@ struct phy_device *phy_find_by_mask(struct mii_dev *bus, uint phy_mask)
+ static void phy_connect_dev(struct phy_device *phydev, struct udevice *dev,
+ 			    phy_interface_t interface)
+ {
++	/*
++	 * Soft reset the PHY, as U-Boot did up to v2025.01. Linux powers the
++	 * PHY down (BMCR_PDOWN) when the interface goes down; a warm reset
++	 * keeps it powered down, and the stmmac DMA reset in Linux then times
++	 * out without the PHY's RX clock. The reset brings the PHY back up.
++	 */
++	phy_reset(phydev);
+ 	if (phydev->dev && phydev->dev != dev) {
+ 		printf("%s:%d is connected to %s.  Reconnecting to %s\n",
+ 		       phydev->bus->name, phydev->addr,

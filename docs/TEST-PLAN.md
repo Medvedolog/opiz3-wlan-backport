@@ -145,7 +145,16 @@ half-registered eth0 (phylink attaches and resumes the PHY on open), which
 does not happen in preinit. Replaced by `/etc/init.d/opiz3-emac`: at
 shutdown, after netifd has stopped (K99), it opens eth0 again so the PHY
 is awake for the warm reset; at boot (S99, netifd running) it retries an
-unbound EMAC up to five times. Not yet checked on hardware.
+unbound EMAC up to five times. On hardware the boot retry brought eth0 up
+(3 tries, link at 23 s); the boot still started with `EMAC reset timeout`,
+so the shutdown wake did not keep the PHY up.
+
+Why it started now: up to v2025.01 (OpenWrt 25.12.5's own U-Boot) U-Boot's
+`phy_connect_dev()` soft-reset the PHY on every boot, which clears
+BMCR_PDOWN; v2026.04, which the test images carry since 2026-10-07 for the
+1.5 GB boards, dropped that reset. The images now patch it back
+(`uboot/patches/001-net-phy-reset-the-PHY-on-connect.patch`); the init
+script stays as a fallback. Not yet checked on hardware.
 
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 

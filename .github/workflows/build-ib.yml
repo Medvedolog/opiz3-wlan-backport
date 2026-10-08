@@ -25,6 +25,7 @@ on:
       - 'scripts/zero3-dtb-add-wifi.py'
       - 'scripts/fit-replace-dtb.py'
       - 'scripts/stable-mtimes.py'
+      - 'uboot/**'
       - '.github/workflows/build-ib.yml'
   workflow_dispatch:
     inputs:
@@ -483,6 +484,11 @@ jobs:
           BL31=/tmp/tfa/build/sun50i_h616/release/bl31.bin
           git clone -q --depth 1 -b "$UBOOT_TAG" https://github.com/u-boot/u-boot /tmp/uboot
           test "$(git -C /tmp/uboot rev-parse HEAD)" = "$UBOOT_COMMIT"
+          # our fixes on top of the release (uboot/patches/*.patch)
+          for p in "$GITHUB_WORKSPACE"/uboot/patches/*.patch; do
+            echo "U-Boot patch: ${p##*/}"
+            git -C /tmp/uboot apply "$p"
+          done
           for b in zero3:orangepi_zero3 zero2w:orangepi_zero2w; do
             name=${b%%:*}; cfg=${b#*:}
             dst=$(find staging_dir -name "xunlong_orangepi-$name-u-boot-with-spl.bin" | head -1)
