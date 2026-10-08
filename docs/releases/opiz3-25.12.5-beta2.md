@@ -60,7 +60,9 @@ trusts. What is in the image and why:
   instead and comes back by itself in ~15 s. The AP alone (no client)
   passed the same test cleanly. Cause not found yet (no kernel output on
   the serial console); use the repeater where an occasional reboot is
-  acceptable, and change Wi-Fi settings with the client disabled.
+  acceptable, and change Wi-Fi settings with the client disabled. Once,
+  after such a reboot, the Ethernet port stayed down until the power was
+  cycled.
 - `channel auto` does not work for the AP; pick a channel.
 - No per-client signal (RSSI) and RX rate in AP mode; the firmware does
   not report them.
@@ -157,7 +159,8 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   клиента тот же тест прошла чисто. Причина пока не найдена (в
   последовательной консоли ядро ничего не пишет); используйте репитер там,
   где редкая перезагрузка допустима, а настройки Wi-Fi меняйте с
-  выключенным клиентом.
+  выключенным клиентом. Один раз после такой перезагрузки Ethernet-порт
+  не поднялся до передёргивания питания.
 - `channel auto` для точки не работает — выберите канал.
 - Нет уровня сигнала (RSSI) и RX-скорости клиентов в режиме точки:
   прошивка их не отдаёт.
