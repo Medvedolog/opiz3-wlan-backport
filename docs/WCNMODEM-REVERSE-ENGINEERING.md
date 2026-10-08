@@ -2589,3 +2589,37 @@ identical to the station context (repeater failure, TEST-PLAN S5).
 | Per-LUT 100-byte station entries at `0x40340000` | Medium (stride and users; meaning of fields open) |
 | Windows readable over SDIO | High for the vendor-dumped ranges (vendor crash dump reads them); read only while Wi-Fi is up |
 | Subtype 2 of command 0x40 sets the MAC of any context `< 3` | High (static); not yet tried on hardware |
+
+## 64. Beacon assembly is in ROM; the image passes hostapd's template through (Country IE question, 2026-10-08)
+
+A tester set `country 'DE'` and saw no Country element (IE 7) in the air.
+OpenWrt's wifi-scripts set `ieee80211d=1` by default when a country is set,
+so hostapd puts the Country IE into the beacon tail; the host driver copies
+head and tail unchanged into `WIFI_CMD_START_AP` (it only appends a DS
+Parameter Set IE when missing, patch 180).
+
+In the image:
+
+- `START_AP` handler `0x001431ec`: rejects templates longer than `0x300`
+  bytes (status `0x11`), edits the DS (3) / VHT Operation (`0xc0`) IEs
+  (§44) and hands the template to ROM `0x00209ac4`. Nothing else is read
+  or removed.
+- `WIFI_CMD_SET_IES` (`0x19`) handler `0x00143a16`: IE set type < 5,
+  length 1..`0x165`, passed to ROM as well.
+- The image's IE lookups (ROM `find_ie` `0x00209846`) are for IDs 3,
+  `0xc0`, `0xdd` (vendor, `0x147044`) and `0x3b` (supported operating
+  classes, `0x1631d0`). No code in the image builds, reads or strips a
+  Country IE.
+
+So whether the Country IE reaches the air is decided in ROM, which is not
+in `wcnmodem.bin` and cannot be read statically. Open, on hardware:
+
+1. hostapd config has `country_code=DE` and `ieee80211d=1`
+   (`/var/run/hostapd-phy0.conf`);
+2. the element is in beacons and/or probe responses (sniffer);
+3. if hostapd sends it and the air has none, ROM drops it: then the next
+   step is a ROM read over SDIO (only addresses proven readable, §51/§63.1).
+
+The regulatory rules themselves (channels, power) go to the firmware
+separately (`WIFI_CMD_SET_REGDOM` from the driver's reg notifier) and do
+not depend on the Country IE.
