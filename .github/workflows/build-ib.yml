@@ -523,9 +523,22 @@ jobs:
           uci set luci.themes.Footstrap='/luci-static/footstrap'
           uci set luci.main.mediaurlbase='/luci-static/footstrap'
           uci commit luci
+          # router-wide Appearance defaults in the project's colours (warm dark,
+          # amber accent; the same as the project's recovery/app pages). Only
+          # options still unset, so an upgrade keeps what the admin chose; a
+          # browser's own Appearance choice overrides them anyway.
+          uci -q get footstrap.settings >/dev/null || uci set footstrap.settings=footstrap
+          for kv in darkmode=dark palette=footstrap tint=#161009 card=#241a12 \
+          	control=#1a120b bar=#1f160f line=#372b21 accent=#d99a4d \
+          	good=#7fb88f warn=#e3b341 danger=#e5634f rounding=14; do
+          	uci -q get "footstrap.settings.${kv%%=*}" >/dev/null ||
+          		uci set "footstrap.settings.$kv"
+          done
+          uci commit footstrap
           exit 0
           EOF
           sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-footstrap-default
+          sh -n files/etc/uci-defaults/zz-opiz3-footstrap-default
           chmod +x files/etc/uci-defaults/zz-opiz3-footstrap-default
 
           # uplinks of a travel router: an LTE modem ("modem", ModemManager)
