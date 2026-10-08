@@ -16,6 +16,9 @@ trusts. What is in the image and why:
   (`NL80211_FEATURE_MAC_ON_CREATE`) and passes it to the firmware, and
   OpenWrt no longer reuses (renames) interfaces of this radio. Put the
   access point on the uplink's channel.
+  When the client is disconnected (Wi-Fi restart), the driver now waits
+  for the firmware to finish before the interface is deleted: deleting it
+  earlier crashed the firmware or froze the board in testing.
 - **Access point on the first boot, for real.** In beta 1 a first-boot race
   left the radio as OpenWrt's disabled default. The AP is named after the
   board: `OPiZ3`, `OPiZ2W`, `OPiZ2`; password `12345678test` — change it.
@@ -112,6 +115,9 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   теперь свой MAC: драйвер принимает адрес нового интерфейса и передаёт его
   прошивке, а OpenWrt больше не переиспользует интерфейсы этого радио.
   Канал точки ставьте равным каналу аплинка.
+  При отключении клиента (перезапуск Wi-Fi) драйвер теперь ждёт, пока
+  прошивка закончит отключение, и только потом интерфейс удаляется: раньше
+  это роняло прошивку или вешало плату.
 - **Точка доступа при первой загрузке теперь действительно поднимается.** В
   beta 1 из-за гонки при первом старте радио оставалось стоковым и
   выключенным. Имя сети — по плате: `OPiZ3`, `OPiZ2W`, `OPiZ2`; пароль

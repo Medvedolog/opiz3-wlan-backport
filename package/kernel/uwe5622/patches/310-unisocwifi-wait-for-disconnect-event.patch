@@ -1,0 +1,44 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: wait for the disconnect event before returning
+
+cfg80211 disconnect sent WIFI_CMD_DISCONNECT and returned at once. On a
+Wi-Fi restart wpa_supplicant disconnects the station and deletes the
+interface right after. In a repeater stress test (AP and station on the
+radio, TEST-PLAN 2026-10-08) the teardown of a connected station either
+asserted the firmware (rf_marlin.c line 1016, pri20_offset == NO_OFFSET)
+or froze the board with no kernel output; the AP alone never did.
+
+Wait up to 1 s for the firmware's disconnect event (it sets sm_state to
+DISCONNECTED through sprdwl_report_disconnection) when the station was
+connected. The vendor's SYNC_DISCONNECT wait exists for kernels before
+4.9.60 only and is not built here.
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index a31b2c7..bc589dc 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -2455,6 +2455,24 @@ static int sprdwl_cfg80211_disconnect(struct wiphy *wiphy,
+ 		vif->sm_state = old_state;
+ 		goto out;
+ 	}
++	/* Wait (up to 1 s) for the firmware's disconnect event before
++	 * returning. wpa_supplicant disconnects and deletes the interface
++	 * right after: with an AP on the radio too (repeater), deleting a
++	 * station context the firmware was still disconnecting asserted it
++	 * (rf_marlin.c pri20_offset) or froze the board. The event comes from
++	 * the SDIO RX path, which takes no lock held here.
++	 */
++	if (old_state == SPRDWL_CONNECTED) {
++		int i;
++
++		for (i = 0; i < 50 &&
++		     READ_ONCE(vif->sm_state) == SPRDWL_DISCONNECTING; i++)
++			msleep(20);
++		if (READ_ONCE(vif->sm_state) == SPRDWL_DISCONNECTING)
++			wl_ndev_log(L_ERR, ndev,
++				    "%s: no disconnect event within 1 s\n",
++				    __func__);
++	}
+ #ifdef SYNC_DISCONNECT
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 60)
+ 	if (!sprdwl_sync_disconnect_event(vif, msecs_to_jiffies(1000))) {
