@@ -2691,3 +2691,20 @@ and [tools/wcnmodem-ack-rssi.py](../tools/wcnmodem-ack-rssi.py).
 
 This section refines, rather than replaces, the mapping in sections 47-48
 and 63.2. RX rate remains deliberately out of scope.
+
+Open firmware tasks, separate from the beta2 work; `wcnmodem.bin` stays
+unmodified until both are done:
+
+1. One-byte integrity test: change one byte of a diagnostic string whose
+   cross-references were checked first. Not `WCN_VER`: the version string
+   may take part in the CP/host handshake. A clean boot proves only that
+   this change is not rejected, not that the chip checks nothing; a failed
+   boot needs its cause analysed.
+2. Trace `switch_cp2_log` end to end (host command, CP2 log control, log
+   transport, host receive) and find whether the values before the range
+   filter at 0x128554 can be logged without touching rate control. The
+   stock log may not contain them.
+
+A modified firmware is published only as a separate debug package, never in
+the images, and only once the right to redistribute a modified binary is
+established (the firmware is proprietary).
