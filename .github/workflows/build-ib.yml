@@ -61,8 +61,8 @@ env:
   UBOOT_VER: "2026.04"
   UBOOT_COMMIT: 88dc2788777babfd6322fa655df549a019aa1e69
   TFA_TAG: v2.10
-  FOOTSTRAP_TAG: v0.14.13
-  FOOTSTRAP_VERSION: 0.14.13
+  FOOTSTRAP_TAG: v0.14.14
+  FOOTSTRAP_VERSION: 0.14.14
   AWG_COMMIT: 3f3ec68d594c8e965c988af75ac5314616229c88
   KEY_NAME: opiz3-wlan
   # our packages only; anything else the SDK rebuilt as a dependency stays out

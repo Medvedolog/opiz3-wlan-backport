@@ -506,7 +506,7 @@ Footstrap is the default test-image LuCI theme target.
 Current CI pins:
 
 ```
-luci-theme-footstrap v0.14.13
+luci-theme-footstrap v0.14.14
 ```
 
 Bootstrap remains present as a fallback.
