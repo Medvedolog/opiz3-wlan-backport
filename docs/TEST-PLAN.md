@@ -136,9 +136,16 @@ in. The PHY (YT8531) answers on MDIO but gives no RX clock: the interface
 going down suspended it and a warm reset keeps it powered down. The failed
 probe attaches and so resumes the PHY; a second
 `echo 5020000.ethernet > /sys/bus/platform/drivers/dwmac-sun8i/bind`
-succeeds (1 Gbit/s link). The image now retries the bind in preinit
-(`/lib/preinit/15_opiz3_emac_rebind`, up to three tries, result in dmesg as
-`opiz3: 5020000.ethernet rebind ...`). Not yet checked on hardware.
+succeeds (1 Gbit/s link).
+
+The preinit retry (`/lib/preinit/15_opiz3_emac_rebind`, test image
+30db40e) did not help: all three binds failed and no PHY was attached in
+any of them. What woke the PHY in the manual case was netifd opening the
+half-registered eth0 (phylink attaches and resumes the PHY on open), which
+does not happen in preinit. Replaced by `/etc/init.d/opiz3-emac`: at
+shutdown, after netifd has stopped (K99), it opens eth0 again so the PHY
+is awake for the warm reset; at boot (S99, netifd running) it retries an
+unbound EMAC up to five times. Not yet checked on hardware.
 
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 

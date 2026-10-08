@@ -542,29 +542,55 @@ jobs:
           sh -n files/etc/uci-defaults/zz-opiz3-wan-zone
 
           # after a warm reboot the EMAC does not probe ("EMAC reset timeout",
-          # -110): the interface going down suspended the external PHY
-          # (YT8531 on the Zero 3), a warm reset keeps it powered down, and
-          # the DMA reset needs its RX clock. The failed probe attaches and so
-          # resumes the PHY; a second bind then succeeds (seen on hardware).
-          mkdir -p files/lib/preinit
-          cat > files/lib/preinit/15_opiz3_emac_rebind <<'EOF'
-          opiz3_emac_rebind() {
+          # -110): netifd taking eth0 down at shutdown suspends the external
+          # PHY (YT8531 on the Zero 3), a warm reset keeps it powered down, and
+          # the DMA reset needs its RX clock. Opening the interface attaches
+          # and resumes the PHY (seen on hardware: a bind fails, netifd opens
+          # the half-registered eth0, the next bind succeeds; binds in preinit
+          # without netifd all failed). So: wake the PHY again as the last step
+          # of the shutdown, and at boot retry the bind while netifd runs.
+          mkdir -p files/etc/init.d files/etc/rc.d
+          cat > files/etc/init.d/opiz3-emac <<'EOF'
+          #!/bin/sh /etc/rc.common
+          START=99
+          STOP=99
+
+          emac_rebind() {
           	local drv=/sys/bus/platform/drivers/dwmac-sun8i d i
           	[ -d "$drv" ] || return 0
           	for d in /sys/bus/platform/devices/*.ethernet; do
           		[ -e "$d" ] && [ ! -e "$d/driver" ] || continue
           		grep -q emac "$d/modalias" 2>/dev/null || continue
-          		for i in 1 2 3; do
+          		for i in 1 2 3 4 5; do
           			echo "${d##*/}" > "$drv/bind" 2>/dev/null && break
-          			sleep 1
+          			sleep 3
           		done
           		echo "opiz3: ${d##*/} rebind after $i tries: $([ -e "$d/driver" ] && echo ok || echo failed)" > /dev/kmsg
           	done
           }
-          boot_hook_add preinit_main opiz3_emac_rebind
+
+          boot() {
+          	emac_rebind &
+          }
+
+          start() {
+          	emac_rebind
+          }
+
+          shutdown() {
+          	local n
+          	for n in /sys/class/net/*; do
+          		case "$(readlink "$n/device/driver")" in
+          		*/dwmac-sun8i) ip link set "${n##*/}" up ;;
+          		esac
+          	done
+          }
           EOF
-          sed -i 's/^ *//' files/lib/preinit/15_opiz3_emac_rebind
-          sh -n files/lib/preinit/15_opiz3_emac_rebind
+          sed -i 's/^ *//' files/etc/init.d/opiz3-emac
+          chmod +x files/etc/init.d/opiz3-emac
+          sh -n files/etc/init.d/opiz3-emac
+          ln -sf ../init.d/opiz3-emac files/etc/rc.d/S99opiz3-emac
+          ln -sf ../init.d/opiz3-emac files/etc/rc.d/K99opiz3-emac
 
           # first boot of this image: uwe5622-default-ap turns the onboard
           # Wi-Fi into the OPiZ3 / OPiZ2W / OPiZ2 AP once (never on "apk upgrade")
