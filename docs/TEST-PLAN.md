@@ -156,6 +156,33 @@ BMCR_PDOWN; v2026.04, which the test images carry since 2026-10-07 for the
 (`uboot/patches/001-net-phy-reset-the-PHY-on-connect.patch`); the init
 script stays as a fallback. Not yet checked on hardware.
 
+## Boot hang without a client (r29 + U-Boot PHY reset, Zero 3, 2026-10-08)
+
+Ethernet after `reboot`: fixed by the U-Boot patch (two reboots, eth0 at
+2.6 s, link at 5.7 s, no `EMAC reset timeout`).
+
+One of the next boots froze and the watchdog reset it, AP only, no
+client configured. UART:
+
+    [34.607] WCN: start_loopcheck
+    [34.684] sprdwl: lc wlan0 open mode 1 ...    (init interface)
+    [34.837] sprdwl: lc del_iface done
+    [38.718] WCN: stop_loopcheck                  (last line)
+
+`phy0-ap0` was never opened (no `lc phy0-ap0 open`). 38.7 s is exactly
+start_loopcheck + 1 s (first check) + 3 s (ack timeout): the firmware
+stopped answering about a second after the init interface was deleted.
+The freeze is therefore not specific to the repeater; it can hit the
+first AP start too, rarely.
+
+Vendor bug found on the way: on a missed ack loopcheck_work_queue() calls
+stop_loopcheck(), which does cancel_delayed_work_sync() on the running
+work itself, so the kworker waits for itself and the CP2 dump and the
+assert that lets uwe5622-recover reload Wi-Fi never run. Patch 330 (r30)
+clears the open bit instead. Whether the board then recovers instead of
+freezing is not known yet: on the next hang the UART should show
+`didn't get loopcheck ack` and `start dump CP2 mem`.
+
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 
 A tester's debug archive, ext4 image, 1 GB board:

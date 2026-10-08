@@ -1,0 +1,28 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwcn: do not cancel the loopcheck work from itself
+
+When the firmware misses a loopcheck ack, loopcheck_work_queue() calls
+stop_loopcheck(), which does cancel_delayed_work_sync() on the very work
+that is running, so it waits for itself: the kworker blocks for good and
+the "didn't get loopcheck ack" message, the CP2 dump and the assert that
+lets userspace recover Wi-Fi never happen. Seen on the Zero 3 at boot:
+"WCN: stop_loopcheck" exactly 1 s + 3 s after start_loopcheck, nothing
+after it, then the watchdog reset. Clear the open bit instead.
+
+diff --git a/unisocwcn/platform/loopcheck.c b/unisocwcn/platform/loopcheck.c
+index a47a66e..df5892c 100644
+--- a/unisocwcn/platform/loopcheck.c
++++ b/unisocwcn/platform/loopcheck.c
+@@ -68,7 +68,11 @@ static void loopcheck_work_queue(struct work_struct *work)
+ 	if (!test_bit(WCN_LOOPCHECK_OPEN, &loopcheck.status))
+ 		return;
+ 	if (!timeleft) {
+-		stop_loopcheck();
++		/*
++		 * Not stop_loopcheck(): it cancels this work synchronously,
++		 * i.e. waits for itself, and the assert below never runs.
++		 */
++		clear_bit(WCN_LOOPCHECK_OPEN, &loopcheck.status);
+ 		WCN_ERR("didn't get loopcheck ack\n");
+ 		WCN_INFO("start dump CP2 mem\n");
+ 		mdbg_assert_interface("loopcheck fail");

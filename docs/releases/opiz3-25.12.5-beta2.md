@@ -70,6 +70,9 @@ trusts. What is in the image and why:
   passed the same test cleanly. Cause not found yet (no kernel output on
   the serial console); use the repeater where an occasional reboot is
   acceptable, and change Wi-Fi settings with the client disabled.
+  Rarely the same freeze happens at boot without a client (seen once in
+  a few boots): the Wi-Fi firmware stops answering while the AP is being
+  set up; the watchdog reboots the board and the next boot is normal.
 - `channel auto` does not work for the AP; pick a channel.
 - No per-client signal (RSSI) and RX rate in AP mode; the firmware does
   not report them.
@@ -175,7 +178,10 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   клиента тот же тест прошла чисто. Причина пока не найдена (в
   последовательной консоли ядро ничего не пишет); используйте репитер там,
   где редкая перезагрузка допустима, а настройки Wi-Fi меняйте с
-  выключенным клиентом.
+  выключенным клиентом. Изредка такое же зависание бывает и при загрузке
+  без клиента (один раз за несколько загрузок): прошивка Wi-Fi перестаёт
+  отвечать, пока поднимается точка; watchdog перезагружает плату, следующая
+  загрузка проходит нормально.
 - `channel auto` для точки не работает — выберите канал.
 - Нет уровня сигнала (RSSI) и RX-скорости клиентов в режиме точки:
   прошивка их не отдаёт.
