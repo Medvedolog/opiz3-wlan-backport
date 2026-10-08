@@ -41,9 +41,11 @@ adapters, the 1.5 GB board, Zero 2 / Zero 2W.
   изредка то же при загрузке без клиента; watchdog перезагружает через
   ~16 с. Если подключён UART — пришлите последние строки `sprdwl: lc` и
   `WCN`.
-- The country setting is not applied to the onboard Wi-Fi: the driver uses
-  world rules (20 dBm, no country code in the beacon). In the EU avoid
-  channels 149-165. Fix after beta 2.
-  Страна из настроек не применяется к встроенному Wi-Fi: драйвер работает
-  по мировым правилам (20 дБм, без кода страны в маяке). В ЕС не
-  используйте каналы 149–165. Исправление после beta 2.
+- The country code is only partly applied to the onboard Wi-Fi: the
+  kernel's channel limits work (DE: ch 14 off, 149-165 at 13 dBm), but the
+  driver gives the firmware world rules and the beacon has no country
+  code. Fix after beta 2.
+  Страна применяется к встроенному Wi-Fi не полностью: ограничения каналов
+  ядра работают (DE: канал 14 выключен, 149–165 — 13 дБм), но драйвер
+  отдаёт прошивке мировые правила, и в маяке нет кода страны. Исправление
+  после beta 2.

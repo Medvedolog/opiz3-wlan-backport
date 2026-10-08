@@ -73,12 +73,14 @@ trusts. What is in the image and why:
   Rarely the same freeze happens at boot without a client (seen once in
   a few boots): the Wi-Fi firmware stops answering while the AP is being
   set up; the watchdog reboots the board and the next boot is normal.
-- **The country setting is not applied to the onboard Wi-Fi.** The vendor
-  driver knows only a few countries (US, CN, NL, CZ, JP, TR) and uses world
-  rules for any other: up to 20 dBm on every channel and no country code in
-  the AP's beacon (reported on a Zero 2W with DE). In the EU do not use
-  5 GHz channels 149-165 (allowed there at 13 dBm only). A fix (rules from
-  the kernel's regulatory database) is planned after beta 2.
+- **The country code is not fully applied to the onboard Wi-Fi.** The
+  kernel does apply the country's channel limits (with DE: channel 14 off,
+  channels 149-165 capped at 13 dBm, seen on a Zero 2W), but the vendor
+  driver knows only a few countries (US, CN, NL, CZ, JP, TR) and hands the
+  firmware world rules for any other, and the AP's beacon carries no
+  country code. Whether the firmware keeps to the per-channel TX limit is
+  not verified. A fix (rules from the kernel's regulatory database) is
+  planned after beta 2.
 - `channel auto` does not work for the AP; pick a channel.
 - No per-client signal (RSSI) and RX rate in AP mode; the firmware does
   not report them.
@@ -188,12 +190,13 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   без клиента (один раз за несколько загрузок): прошивка Wi-Fi перестаёт
   отвечать, пока поднимается точка; watchdog перезагружает плату, следующая
   загрузка проходит нормально.
-- **Страна из настроек не применяется к встроенному Wi-Fi.** Драйвер
-  производителя знает только несколько стран (US, CN, NL, CZ, JP, TR) и для
-  остальных берёт мировые правила: до 20 дБм на всех каналах и без кода
-  страны в маяке точки (найдено на Zero 2W с DE). В ЕС не используйте
-  каналы 5 ГГц 149–165 (там разрешено только 13 дБм). Исправление (правила
-  из базы ядра) — после beta 2.
+- **Страна из настроек применяется к встроенному Wi-Fi не полностью.**
+  Ограничения каналов ядро применяет (с DE: канал 14 выключен, каналы
+  149–165 ограничены 13 дБм, проверено на Zero 2W), но драйвер
+  производителя знает только несколько стран (US, CN, NL, CZ, JP, TR) и
+  для остальных отдаёт прошивке мировые правила, а в маяке точки нет кода
+  страны. Соблюдает ли прошивка ограничение мощности по каналу — не
+  проверено. Исправление (правила из базы ядра) — после beta 2.
 - `channel auto` для точки не работает — выберите канал.
 - Нет уровня сигнала (RSSI) и RX-скорости клиентов в режиме точки:
   прошивка их не отдаёт.
