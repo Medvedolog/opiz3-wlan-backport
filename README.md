@@ -66,6 +66,7 @@ What sets it apart from earlier builds:
 - [Building](#building)
 - [Diagnostics](#diagnostics)
 - [Documentation](#documentation)
+- [Origin and licenses](#origin-and-licenses)
 - [Credits and license](#credits-and-license)
 
 ## Status
@@ -420,6 +421,18 @@ with the Wi-Fi keys masked. Attach it to an issue.
 | [HANDOFF.md](docs/HANDOFF.md) | Historical snapshot (2026-09-30) of the earlier work |
 | [tools/wcnmodem-re.py](tools/wcnmodem-re.py) | Helper for the firmware analysis |
 
+## Origin and licenses
+
+| Part | Origin | License |
+|---|---|---|
+| UWE5622 chip | Spreadtrum, now UNISOC (Marlin3 Lite, SC2355 platform). Part of the Wi-Fi stack is in the chip's ROM | — |
+| `wcnmodem.bin` firmware | UNISOC binary `MARLIN3_19B_W21.05.3`, project `sc2355_marlin3_lite_ott` (TV boxes), built 2021-12-15; no newer public build is known. Taken from [armbian/firmware](https://github.com/armbian/firmware) | **Proprietary, no license text published.** armbian/firmware has no LICENSE or WHENCE entry for `uwe5622/`; its README only says proprietary files are under their owners' terms. We redistribute it as Armbian does |
+| Host driver (`sprdwl_ng`, `uwe5622_bsp_sdio`) | Spreadtrum code (copyright 2013–2019), shipped in Allwinner's BSP, carried in Orange Pi kernels and as Armbian patches, now [armbian/uwe5622](https://github.com/armbian/uwe5622). Never merged into mainline Linux | **GPL-2.0** (file headers, `MODULE_LICENSE`) |
+| Our patches, scripts, LuCI app | This repository | GPL-2.0 |
+
+How Allwinner or Orange Pi licensed the firmware from UNISOC is not public;
+nothing here relies on assumptions about it.
+
 ## Credits and license
 
 - The UWE5622 driver: UNISOC, maintained by the Armbian project (GPL-2.0).
@@ -429,6 +442,5 @@ with the Wi-Fi keys masked. Attach it to an issue.
 - Footstrap theme: VizzleTF. AmneziaWG packages: 2Grey.
 
 Patch authorship is kept in each patch. Everything in this repository is
-GPL-2.0 ([LICENSE](LICENSE)). The firmware files are redistributed from
-[armbian/firmware](https://github.com/armbian/firmware) under their own
-terms.
+GPL-2.0 ([LICENSE](LICENSE)), except the firmware files, which are
+proprietary (see [Origin and licenses](#origin-and-licenses)).

@@ -4,11 +4,15 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=uwe5622-firmware
 PKG_VERSION:=2023.09.02
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 FW_SOURCE_VERSION:=612bc7cc0e3539ea89c659049b7d8432e2de8ed7
 
-PKG_LICENSE:=Redistributable
+# Proprietary UNISOC (Spreadtrum) firmware. No license text is published
+# for it: armbian/firmware ships uwe5622/ without a LICENSE or WHENCE entry
+# and its README only says that proprietary files are under their owners'
+# terms. Redistributed as Armbian does; see README, "Origin and licenses".
+PKG_LICENSE:=Proprietary
 PKG_MAINTAINER:=jukeboge <jukeboge@gmail.com>
 
 include $(INCLUDE_DIR)/package.mk
