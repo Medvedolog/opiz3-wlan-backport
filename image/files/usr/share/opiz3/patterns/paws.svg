@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><title>Paw prints</title><g fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(40 45) rotate(-25) scale(1)" fill="#000" stroke="none">
+<path d="M0 2C-8 2-13 8-13 13S-8 20 0 18 13 18 13 13 8 2 0 2Z"/>
+<ellipse cx="-12" cy="-6" rx="4.2" ry="5.4" transform="rotate(-20 -12 -6)"/>
+<ellipse cx="-4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(-6 -4.5 -12)"/>
+<ellipse cx="4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(6 4.5 -12)"/>
+<ellipse cx="12" cy="-6" rx="4.2" ry="5.4" transform="rotate(20 12 -6)"/>
+</g><g transform="translate(85 90) rotate(-15) scale(0.9)" fill="#000" stroke="none">
+<path d="M0 2C-8 2-13 8-13 13S-8 20 0 18 13 18 13 13 8 2 0 2Z"/>
+<ellipse cx="-12" cy="-6" rx="4.2" ry="5.4" transform="rotate(-20 -12 -6)"/>
+<ellipse cx="-4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(-6 -4.5 -12)"/>
+<ellipse cx="4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(6 4.5 -12)"/>
+<ellipse cx="12" cy="-6" rx="4.2" ry="5.4" transform="rotate(20 12 -6)"/>
+</g><g transform="translate(128 128) rotate(-25) scale(1)" fill="#000" stroke="none">
+<path d="M0 2C-8 2-13 8-13 13S-8 20 0 18 13 18 13 13 8 2 0 2Z"/>
+<ellipse cx="-12" cy="-6" rx="4.2" ry="5.4" transform="rotate(-20 -12 -6)"/>
+<ellipse cx="-4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(-6 -4.5 -12)"/>
+<ellipse cx="4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(6 4.5 -12)"/>
+<ellipse cx="12" cy="-6" rx="4.2" ry="5.4" transform="rotate(20 12 -6)"/>
+</g><g transform="translate(170 172) rotate(-15) scale(0.9)" fill="#000" stroke="none">
+<path d="M0 2C-8 2-13 8-13 13S-8 20 0 18 13 18 13 13 8 2 0 2Z"/>
+<ellipse cx="-12" cy="-6" rx="4.2" ry="5.4" transform="rotate(-20 -12 -6)"/>
+<ellipse cx="-4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(-6 -4.5 -12)"/>
+<ellipse cx="4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(6 4.5 -12)"/>
+<ellipse cx="12" cy="-6" rx="4.2" ry="5.4" transform="rotate(20 12 -6)"/>
+</g><g transform="translate(150 38) rotate(20) scale(0.8)" fill="#000" stroke="none">
+<path d="M0 2C-8 2-13 8-13 13S-8 20 0 18 13 18 13 13 8 2 0 2Z"/>
+<ellipse cx="-12" cy="-6" rx="4.2" ry="5.4" transform="rotate(-20 -12 -6)"/>
+<ellipse cx="-4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(-6 -4.5 -12)"/>
+<ellipse cx="4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(6 4.5 -12)"/>
+<ellipse cx="12" cy="-6" rx="4.2" ry="5.4" transform="rotate(20 12 -6)"/>
+</g><g transform="translate(38 160) rotate(20) scale(0.8)" fill="#000" stroke="none">
+<path d="M0 2C-8 2-13 8-13 13S-8 20 0 18 13 18 13 13 8 2 0 2Z"/>
+<ellipse cx="-12" cy="-6" rx="4.2" ry="5.4" transform="rotate(-20 -12 -6)"/>
+<ellipse cx="-4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(-6 -4.5 -12)"/>
+<ellipse cx="4.5" cy="-12" rx="4.4" ry="5.8" transform="rotate(6 4.5 -12)"/>
+<ellipse cx="12" cy="-6" rx="4.2" ry="5.4" transform="rotate(20 12 -6)"/>
+</g></g></svg>

@@ -26,6 +26,7 @@ on:
       - 'scripts/fit-replace-dtb.py'
       - 'scripts/stable-mtimes.py'
       - 'uboot/**'
+      - 'image/**'
       - '.github/workflows/build-ib.yml'
   workflow_dispatch:
     inputs:
@@ -516,6 +517,8 @@ jobs:
           cat repositories
 
           mkdir -p files/etc/apk/keys files/etc/apk/repositories.d files/etc/uci-defaults
+          # files kept in the repository (image/files): LuCI background patterns
+          cp -a "$GITHUB_WORKSPACE/image/files/." files/
           cp "../apk-repo/$KEY_NAME.pem" files/etc/apk/keys/
           echo "$URL" > files/etc/apk/repositories.d/customfeeds.list
           cat > files/etc/uci-defaults/zz-opiz3-footstrap-default <<'EOF'
@@ -530,11 +533,14 @@ jobs:
           uci -q get footstrap.settings >/dev/null || uci set footstrap.settings=footstrap
           for kv in darkmode=dark palette=footstrap tint=#161009 card=#241a12 \
           	control=#1a120b bar=#1f160f line=#372b21 accent=#d99a4d \
-          	good=#7fb88f warn=#e3b341 danger=#e5634f rounding=14; do
+          	good=#7fb88f warn=#e3b341 danger=#e5634f rounding=14 pattern_size=220; do
           	uci -q get "footstrap.settings.${kv%%=*}" >/dev/null ||
           		uci set "footstrap.settings.$kv"
           done
           uci commit footstrap
+          # bears tiled in the background (opiz3-pattern switches or turns it off)
+          [ -e /etc/footstrap/pattern.svg ] || uci -q get footstrap.settings.wallpaper >/dev/null ||
+          	/usr/sbin/opiz3-pattern bears >/dev/null
           exit 0
           EOF
           sed -i 's/^ *//' files/etc/uci-defaults/zz-opiz3-footstrap-default

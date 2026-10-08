@@ -1,0 +1,30 @@
+#!/bin/sh
+# opiz3-pattern NAME|off: the tiled background of LuCI's Footstrap theme.
+# The patterns are in /usr/share/opiz3/patterns; Footstrap paints
+# /etc/footstrap/pattern.svg in the theme's own colour, and its token (an md5
+# of the file) makes the browser fetch the new one. A pattern of your own can
+# be uploaded under System > Footstrap/Appearance instead. A browser that set
+# its own wallpaper there keeps it: reset Appearance in that browser.
+
+D=/usr/share/opiz3/patterns
+names=$(ls "$D" 2>/dev/null | sed -n 's/\.svg$//p' | tr '\n' ' ')
+
+case "$1" in
+off)
+	uci set footstrap.settings.wallpaper=off
+	;;
+''|-h|--help)
+	echo "usage: opiz3-pattern NAME|off   (NAME: $names)"
+	exit 1
+	;;
+*)
+	[ -f "$D/$1.svg" ] || { echo "no pattern '$1' (have: $names)" >&2; exit 1; }
+	mkdir -p /etc/footstrap
+	cp "$D/$1.svg" /etc/footstrap/pattern.svg
+	chmod 644 /etc/footstrap/pattern.svg
+	uci set footstrap.settings.pattern="$(md5sum /etc/footstrap/pattern.svg | cut -c1-32)"
+	uci set footstrap.settings.wallpaper=pattern
+	;;
+esac
+uci commit footstrap
+echo "done; reload the LuCI page"
