@@ -581,7 +581,10 @@ jobs:
           	local n
           	for n in /sys/class/net/*; do
           		case "$(readlink "$n/device/driver")" in
-          		*/dwmac-sun8i) ip link set "${n##*/}" up ;;
+          		*/dwmac-sun8i)
+          			ip link set "${n##*/}" up
+          			echo "opiz3: ${n##*/} up for the reboot: $(cat "$n/operstate")" > /dev/kmsg
+          			;;
           		esac
           	done
           }
