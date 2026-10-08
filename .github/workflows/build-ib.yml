@@ -144,7 +144,7 @@ jobs:
         run: |
           BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
           SDK=openwrt-sdk-$RELEASE-$SDK_SUFFIX
-          curl -fsSL -O "$BASE/$SDK.tar.zst"
+          curl --http1.1 -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$BASE/$SDK.tar.zst"
           tar --zstd -xf "$SDK.tar.zst"
           rm "$SDK.tar.zst"
           mv "$SDK" sdk
@@ -378,7 +378,7 @@ jobs:
         run: |
           BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
           IB=openwrt-imagebuilder-$RELEASE-$TARGET-$SUBTARGET.Linux-x86_64
-          curl -fsSL -O "$BASE/$IB.tar.zst"
+          curl --http1.1 -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$BASE/$IB.tar.zst"
           tar --zstd -xf "$IB.tar.zst"
           mv "$IB" ib
           echo "IB_NAME=$IB" >> "$GITHUB_ENV"

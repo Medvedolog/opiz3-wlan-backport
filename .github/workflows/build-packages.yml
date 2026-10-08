@@ -48,7 +48,7 @@ jobs:
         run: |
           BASE=https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/$SUBTARGET
           SDK=openwrt-sdk-$RELEASE-$SDK_SUFFIX
-          curl -fsSL -O "$BASE/$SDK.tar.zst"
+          curl --http1.1 -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$BASE/$SDK.tar.zst"
           tar --zstd -xf "$SDK.tar.zst"
           mv "$SDK" sdk
           echo "SDK siap: $(du -sh sdk | cut -f1)"

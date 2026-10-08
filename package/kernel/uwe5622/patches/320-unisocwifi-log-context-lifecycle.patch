@@ -1,0 +1,133 @@
+From: opiz3-wlan-backport
+Subject: [PATCH] unisocwifi: log the firmware context lifecycle
+
+The repeater hang (AP + station, TEST-PLAN 2026-10-08) stops the whole
+SoC without any kernel output; the last UART lines only show the AP
+leaving the bridge. Log each step of the context lifecycle at KERN_INFO
+(on the console with the default log level), so the UART shows which one
+did not return: WIFI_CMD_OPEN and the context id, WIFI_CMD_RND_MAC,
+disconnect and how long the firmware took to report it (patch 310),
+WIFI_CMD_CLOSE and del_iface. These run only when interfaces are
+created, deleted or disconnected.
+
+WIFI_CMD_CLOSE ignored the command's result ("FIXME - in case of close
+failure"); a failure is now logged. It is still reported as closed: the
+callers (ndo_uninit, change_iface) do not handle it yet.
+---
+diff --git a/unisocwifi/cfg80211.c b/unisocwifi/cfg80211.c
+index bc589dc..ccf4c0a 100644
+--- a/unisocwifi/cfg80211.c
++++ b/unisocwifi/cfg80211.c
+@@ -443,12 +443,16 @@ int sprdwl_init_fw(struct sprdwl_vif *vif)
+ 		mac = vif->ndev->dev_addr;
+ #endif
+ 
++	pr_info("sprdwl: lc %s open mode %d mac %pM\n",
++		vif->ndev ? vif->ndev->name : "-", vif->mode, mac);
+ 	if (sprdwl_open_fw(priv, &vif_ctx_id, vif->mode, mac)) {
+ 		wl_ndev_log(L_ERR, vif->ndev, "%s failed!\n", __func__);
+ 		vif->mode = SPRDWL_MODE_NONE;
+ 		return -EIO;
+ 	}
+ 	vif->ctx_id  = vif_ctx_id;
++	pr_info("sprdwl: lc %s opened ctx %d\n",
++		vif->ndev ? vif->ndev->name : "-", vif->ctx_id);
+ #ifdef RND_MAC_SUPPORT
+ 	/* WIFI_CMD_OPEN carries the address; whether the firmware applies it
+ 	 * is not known. Subtype 2 of WIFI_CMD_RND_MAC sets the address of a
+@@ -456,11 +460,14 @@ int sprdwl_init_fw(struct sprdwl_vif *vif)
+ 	 * (firmware 0x001435ee, RE §63.3). Only sent when it differs.
+ 	 */
+ 	if (is_valid_ether_addr(priv->mac_addr) &&
+-	    !ether_addr_equal(mac, priv->mac_addr) &&
+-	    wlan_cmd_set_rand_mac(priv, vif->ctx_id, SPRDWL_CONNECT_RANDOM_ADDR,
+-				  mac))
+-		wl_ndev_log(L_ERR, vif->ndev, "%s: setting MAC %pM failed\n",
+-			    __func__, mac);
++	    !ether_addr_equal(mac, priv->mac_addr)) {
++		pr_info("sprdwl: lc ctx %d rnd_mac %pM\n", vif->ctx_id, mac);
++		if (wlan_cmd_set_rand_mac(priv, vif->ctx_id,
++					  SPRDWL_CONNECT_RANDOM_ADDR, mac))
++			wl_ndev_log(L_ERR, vif->ndev,
++				    "%s: setting MAC %pM failed\n",
++				    __func__, mac);
++	}
+ #endif
+ 	wl_ndev_log(L_DBG, vif->ndev, "%s,open success type %d, mode:%d, ctx_id:%d\n",
+ 		    __func__, type,
+@@ -506,10 +513,14 @@ int sprdwl_uninit_fw(struct sprdwl_vif *vif)
+ 		count++;
+ 	}
+ 
++	pr_info("sprdwl: lc %s close ctx %d mode %d\n",
++		vif->ndev ? vif->ndev->name : "-", vif->ctx_id, vif->mode);
+ 	if (sprdwl_close_fw(priv, vif->ctx_id, vif->mode)) {
+ 		wl_ndev_log(L_ERR, vif->ndev, "%s failed!\n", __func__);
+ 		return -EIO;
+ 	}
++	pr_info("sprdwl: lc %s closed ctx %d\n",
++		vif->ndev ? vif->ndev->name : "-", vif->ctx_id);
+ 
+ 	priv->fw_stat[vif->mode] = SPRDWL_INTF_CLOSE;
+ 
+@@ -595,7 +606,11 @@ static int sprdwl_cfg80211_del_iface(struct wiphy *wiphy,
+ 	spin_unlock_bh(&priv->list_lock);
+ 
+ 	if (vif != NULL) {
++		pr_info("sprdwl: lc %s del_iface ctx %d mode %d\n",
++			vif->ndev ? vif->ndev->name : "-", vif->ctx_id,
++			vif->mode);
+ 		sprdwl_del_iface(priv, vif, true);
++		pr_info("sprdwl: lc del_iface done\n");
+ 
+ 		spin_lock_bh(&priv->list_lock);
+ 		list_del(&vif->vif_node);
+@@ -2465,13 +2480,17 @@ static int sprdwl_cfg80211_disconnect(struct wiphy *wiphy,
+ 	if (old_state == SPRDWL_CONNECTED) {
+ 		int i;
+ 
++		pr_info("sprdwl: lc %s disconnect ctx %d reason %u\n",
++			ndev->name, vif->ctx_id, reason_code);
+ 		for (i = 0; i < 50 &&
+ 		     READ_ONCE(vif->sm_state) == SPRDWL_DISCONNECTING; i++)
+ 			msleep(20);
+ 		if (READ_ONCE(vif->sm_state) == SPRDWL_DISCONNECTING)
+-			wl_ndev_log(L_ERR, ndev,
+-				    "%s: no disconnect event within 1 s\n",
+-				    __func__);
++			pr_info("sprdwl: lc %s ctx %d: no disconnect event within 1 s\n",
++				ndev->name, vif->ctx_id);
++		else
++			pr_info("sprdwl: lc %s ctx %d disconnected after ~%d ms\n",
++				ndev->name, vif->ctx_id, i * 20);
+ 	}
+ #ifdef SYNC_DISCONNECT
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 60)
+diff --git a/unisocwifi/cmdevt.c b/unisocwifi/cmdevt.c
+index e5a785d..1c79fe3 100644
+--- a/unisocwifi/cmdevt.c
++++ b/unisocwifi/cmdevt.c
+@@ -1063,6 +1063,7 @@ int sprdwl_close_fw(struct sprdwl_priv *priv, u8 vif_ctx_id, u8 mode)
+ {
+ 	struct sprdwl_msg_buf *msg;
+ 	struct sprdwl_cmd_close *p;
++	int ret;
+ 
+ 	msg = sprdwl_cmd_getbuf(priv, sizeof(*p), vif_ctx_id,
+ 				SPRDWL_HEAD_RSP, WIFI_CMD_CLOSE);
+@@ -1071,8 +1072,13 @@ int sprdwl_close_fw(struct sprdwl_priv *priv, u8 vif_ctx_id, u8 mode)
+ 	p = (struct sprdwl_cmd_close *)msg->data;
+ 	p->mode = mode;
+ 
+-	sprdwl_cmd_send_recv(priv, msg, CMD_WAIT_TIMEOUT, NULL, NULL);
+-	/* FIXME - in case of close failure */
++	ret = sprdwl_cmd_send_recv(priv, msg, CMD_WAIT_TIMEOUT, NULL, NULL);
++	/* FIXME - in case of close failure: still reported as closed, the
++	 * callers do not handle it; logged so a failed close is visible
++	 */
++	if (ret)
++		pr_info("sprdwl: lc WIFI_CMD_CLOSE ctx %d mode %d failed: %d\n",
++			vif_ctx_id, mode, ret);
+ 	return 0;
+ }
+ 
