@@ -34,8 +34,10 @@ trusts. What is in the image and why:
 - Everything listed for beta 1 (Zero 3).
 - Zero 2W (1 GB): boots, Wi-Fi up, AP on 5 GHz VHT80, a client joins; the
   first-boot AP came up by itself.
-- TO BE FILLED IN BEFORE RELEASE: repeater, U-Boot 2026.04 on the Zero 3,
-  1.5 GB board, USB adapter.
+- Zero 3 (1 GB): boots with U-Boot 2026.04; `sysupgrade -n -p` over the
+  network from the r19 test image; the first-boot AP came up by itself
+  (5 GHz channel 36, VHT80, 34 s after power-on).
+- TO BE FILLED IN BEFORE RELEASE: repeater, 1.5 GB board, USB adapter.
 
 ## Known limitations
 
@@ -111,8 +113,10 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
 - Всё, что было в beta 1 (Zero 3).
 - Zero 2W (1 ГБ): загружается, Wi-Fi работает, точка на 5 ГГц VHT80,
   клиент подключается; точка при первой загрузке поднялась сама.
-- ЗАПОЛНИТЬ ПЕРЕД ВЫПУСКОМ: репитер, U-Boot 2026.04 на Zero 3, плата на
-  1,5 ГБ, USB-свисток.
+- Zero 3 (1 ГБ): загружается с U-Boot 2026.04; `sysupgrade -n -p` по сети с
+  тестового образа r19; точка при первой загрузке поднялась сама (5 ГГц,
+  канал 36, VHT80, через 34 с после включения).
+- ЗАПОЛНИТЬ ПЕРЕД ВЫПУСКОМ: репитер, плата на 1,5 ГБ, USB-свисток.
 
 ## Известные ограничения
 
