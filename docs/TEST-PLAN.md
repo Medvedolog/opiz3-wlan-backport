@@ -104,6 +104,28 @@ CHIP_SLP value (from r20). `echo 1 > /sys/module/sprdwl_ng/parameters/wifi_ram_f
 reads without the check; if that read fails, the Wi-Fi stops and
 uwe5622-recover brings it back in ~14 s.
 
+## Repeater stress test (r23, Zero 3, 2026-10-08)
+
+AP `OPiZ3` and a client to a phone hotspot on one radio, 2.4 GHz, a loop of
+`wifi` every 40–60 s (each `wifi` tears down and recreates both
+interfaces). UART console attached.
+
+| Run | Result |
+|---|---|
+| AP + client, 10 cycles | board reset on cycle 10, while the interfaces were being recreated; nothing in the log |
+| AP only, 20 cycles | clean |
+| AP + client, ~8 cycles | one firmware assert (`WCN Assert in rf_marlin.c line 1016, pri20_offset == NO_OFFSET`) while a connected client was torn down; `uwe5622-recover` brought Wi-Fi back as phy1 in ~13 s; cfg80211 `WARNING` (core.c:1321) on the driver unload, no oops |
+| AP + client, hardware watchdog stopped | hard hang on cycle 2, ~2 s after the AP came up (client associating): no kernel output on UART, magic SysRq over UART break did not answer |
+
+The hard hang leaves no trace: the kernel has no soft/hard lockup detector
+(`/proc/sys/kernel/watchdog*` absent) and the CPUs stop answering the UART,
+which points at a bus-level stall (SDIO/MMIO access to the chip) rather than
+a software deadlock. With the hardware watchdog running (default) the board
+resets after ~16 s.
+
+Next: an A/B kmod with the per-interface MAC code of patch 290 switchable
+by a module parameter, to tell the vendor path from ours.
+
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 
 A tester's debug archive, ext4 image, 1 GB board:

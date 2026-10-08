@@ -2644,3 +2644,21 @@ joins a home network. Its AP side is minimal and fragile, which matches
 what this project kept running into: channel from the beacon IEs (§44),
 asserts on channels it cannot tune (§45), no per-peer signal/rate in AP
 mode (§37–§43, §56), beacon assembly in ROM (§64).
+
+## 66. Assert `pri20_offset == NO_OFFSET` on repeater teardown (2026-10-08)
+
+Seen once in a repeater stress test (TEST-PLAN, "Repeater stress test"):
+AP and station on 2.4 GHz channel 2 (the AP had followed the station's
+channel, OpenWrt restarted it there), both up and stable for 7 s; on
+`wifi` the station was disconnected (`reason=3 locally_generated`) and,
+0.2 s before the host tore the interfaces down, the firmware asserted:
+
+    WCN Assert in rf_marlin.c line 1016, pri20_offset == NO_OFFSET
+
+`pri20_offset` is the position of the primary 20 MHz channel inside the
+operating bandwidth (the RF code keeps it per channel context). Reading:
+the deauth/close of the station context left a channel context whose
+offset is unset, and the RF code checks it on the next tune. Not
+reproduced on purpose yet; the AP-only loop never hit it. The chip reset
+path (`marlin_cp2_reset` → `uwe5622-recover`) worked.
+
