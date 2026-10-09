@@ -208,6 +208,76 @@ clears the open bit instead. Whether the board then recovers instead of
 freezing is not known yet: on the next hang the UART should show
 `didn't get loopcheck ack` and `start dump CP2 mem`.
 
+### r30: the same hang, the board stays up (Zero 3, after `reboot`, 2026-10-09)
+
+Patch 330 works: `didn't get loopcheck ack` (44.08 s) → CP2 dump →
+`marlin_cp2_reset`, and the board did not freeze. But Wi-Fi stayed dead,
+`uwe5622-recover` never ran and `iw dev` hung. Collected on the hung board:
+
+- RCU stall on CPU 3 (`rcu_sched detected stalls ... 3-...0`,
+  expedited `{ 3-...D }`). HZ is 100; counting back from the jiffies, the
+  normal grace period started at ~38.5 s and the expedited one at 40.25 s,
+  i.e. the moment of `lc wlan0 del_iface`.
+- `/proc/stat`: every `cpu3` counter frozen (3812 ticks = 38.1 s), the
+  other CPUs idle. CPU 3 stopped taking even the timer tick at ~38.1 s:
+  it is hard-stuck with interrupts off, not looping. In this boot 38.1 s
+  is chip power-on (`chip en ... pull up` 38.109, `sdiohal_scan_card`
+  38.14).
+- Tasks in R on CPU 3's run queue: `sdiohal_rx_thread`, `dbus-daemon`,
+  a third-party modem service, `kworker/u20:1-events_unbound`. With no ticks the
+  scheduler never moves them off CPU 3, so they never run. One of them may
+  be the task that froze it; the others are victims.
+- Blocked (D, from `sysrq w`): `ucode` in sprdwl → cfg80211 → netdev
+  unregister → RCU wait (the `del_iface`, holding rtnl); `iw`,
+  `wpa_supplicant` and a cfg80211 worker on rtnl; ModemManager in
+  usb_wwan.
+
+Reading: the SDIO RX thread is stuck on the dead CPU, so nothing from the
+firmware is received. That alone explains `didn't get loopcheck ack`; the
+firmware may have been fine. The `del_iface` cannot finish while CPU 3
+never reports a quiescent state, and it holds rtnl, so `iw`, netifd and
+the recovery block. The earlier full freezes (this section, the repeater
+test) fit the same picture when the stuck CPU holds a lock the rest
+needs: the loopcheck there also failed exactly start + 4 s.
+
+Open at this point: what froze CPU 3.
+
+### Cause: a third-party modem service against ModemManager (2026-10-09)
+
+Further boots the same day, all with two USB modems on a powered hub
+(Fibocom FM350-GL and a Qualcomm X55) and a third-party modem service
+installed on top of the image (not part of it, installed around
+2026-10-07/08):
+
+- board powered from the hub, then from its own 5 V 3 A supply: silent
+  watchdog resets, once at 14-28 s, before the Wi-Fi driver loads;
+- with OpenWrt's own U-Boot 2025.01 and TF-A instead of ours: a kernel
+  Oops in that service's process, `pc : 0x1000` from a system call on
+  CPU 3 ("Unable to handle kernel execution of user memory"), i.e. a
+  corrupted function pointer in kernel memory.
+
+At every boot that service unbinds and rebinds the modem's `option`
+serial interfaces (`option 1-1.4:1.1: device disconnected`, twice at
+~12 s) while ModemManager is already probing those ports (its log shows
+`Operation was cancelled`). Taking a tty away from `option`/`usb_wwan`
+while another process holds it open is a known way to get a
+use-after-free, and heap corruption then shows up later in unrelated
+places: here a hard-stuck CPU, the Oops, the resets. The service was
+also on the dead CPU 3's run queue above, and ModemManager was blocked
+in `usb_wwan`.
+
+Conclusion: these hangs are attributed to the conflict between that
+service and ModemManager over the modem's serial ports, not to the
+bootloader (the Oops happened on OpenWrt's U-Boot) and not to the Wi-Fi
+driver. The timing near the Wi-Fi start is the busiest moment of the
+boot, not the cause. Not part of the image, so nothing changes in beta 2.
+
+What stays valid: patch 330 (the vendor loopcheck self-deadlock is a
+real bug, found in the code). What needs a recheck on an image without
+third-party services: the repeater stress result (about 1 in 10, which
+was measured after 2026-10-07) and the rare freeze at boot without a
+client.
+
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 
 A tester's debug archive, ext4 image, 1 GB board:

@@ -43,13 +43,19 @@ README) and attach the archive. / Для отчёта запустите на п
 ## Known problems / Известные проблемы
 
 - Repeater (client + AP) can freeze the board on a Wi-Fi restart (about 1
-  in 10 in stress tests); rarely the same freeze at boot without a client.
-  The watchdog reboots it after ~16 s. With a UART attached, send the last
-  `sprdwl: lc` and `WCN` lines.
-  Репитер может вешать плату при перезапуске Wi-Fi (примерно 1 из 10),
-  изредка то же при загрузке без клиента; watchdog перезагружает через
-  ~16 с. Если подключён UART — пришлите последние строки `sprdwl: lc` и
-  `WCN`.
+  in 10 in stress tests, being rechecked: measured with a third-party
+  modem service installed). The watchdog reboots it after ~16 s. With a
+  UART attached, send the last `sprdwl: lc` and `WCN` lines.
+  Репитер может вешать плату при перезапуске Wi-Fi (примерно 1 из 10,
+  перепроверяется: замер был при установленной сторонней службе для
+  модемов); watchdog перезагружает через ~16 с. Если подключён UART —
+  пришлите последние строки `sprdwl: lc` и `WCN`.
+- A third-party modem tool that unbinds/rebinds the modem's serial ports
+  while ModemManager holds them can corrupt kernel memory (random
+  freezes, reboots, oopses). The image does not do this.
+  Сторонняя утилита, перепривязывающая порты модема, пока их держит
+  ModemManager, может портить память ядра (зависания, перезагрузки,
+  падения). Сам образ так не делает.
 - The country code is only partly applied to the onboard Wi-Fi: the
   kernel's channel limits work (DE: ch 14 off, 149-165 at 13 dBm), but the
   driver gives the firmware world rules and the beacon has no country

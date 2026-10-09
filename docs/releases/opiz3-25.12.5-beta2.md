@@ -70,9 +70,14 @@ trusts. What is in the image and why:
   passed the same test cleanly. Cause not found yet (no kernel output on
   the serial console); use the repeater where an occasional reboot is
   acceptable, and change Wi-Fi settings with the client disabled.
-  Rarely the same freeze happens at boot without a client (seen once in
-  a few boots): the Wi-Fi firmware stops answering while the AP is being
-  set up; the watchdog reboots the board and the next boot is normal.
+  The figure was measured on a board that also ran a third-party modem
+  service (see the next item) and is being rechecked without it.
+- **Modem tools that rebind the modem's serial ports.** A service that
+  unbinds and rebinds a USB modem's serial ports (`option` driver) while
+  ModemManager has them open can corrupt kernel memory: random freezes,
+  watchdog reboots and kernel oopses, often near the Wi-Fi start at boot.
+  The image itself does not do this; if you add such a tool, keep it and
+  ModemManager off the same ports.
 - **The country code is not fully applied to the onboard Wi-Fi.** The
   kernel does apply the country's channel limits (with DE: channel 14 off,
   channels 149-165 capped at 13 dBm, seen on a Zero 2W), but the vendor
@@ -186,10 +191,16 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   клиента тот же тест прошла чисто. Причина пока не найдена (в
   последовательной консоли ядро ничего не пишет); используйте репитер там,
   где редкая перезагрузка допустима, а настройки Wi-Fi меняйте с
-  выключенным клиентом. Изредка такое же зависание бывает и при загрузке
-  без клиента (один раз за несколько загрузок): прошивка Wi-Fi перестаёт
-  отвечать, пока поднимается точка; watchdog перезагружает плату, следующая
-  загрузка проходит нормально.
+  выключенным клиентом. Эта цифра получена на плате, где работала ещё и
+  сторонняя служба для модемов (см. следующий пункт), и перепроверяется
+  без неё.
+- **Утилиты для модемов, перепривязывающие их порты.** Служба, которая
+  отвязывает и снова привязывает последовательные порты USB-модема
+  (драйвер `option`), пока их держит открытыми ModemManager, может портить
+  память ядра: случайные зависания, перезагрузки по watchdog и падения
+  ядра, часто около старта Wi-Fi при загрузке. Сам образ так не делает;
+  если ставите такую утилиту, не давайте ей и ModemManager одни и те же
+  порты.
 - **Страна из настроек применяется к встроенному Wi-Fi не полностью.**
   Ограничения каналов ядро применяет (с DE: канал 14 выключен, каналы
   149–165 ограничены 13 дБм, проверено на Zero 2W), но драйвер
