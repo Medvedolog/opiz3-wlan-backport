@@ -21,7 +21,12 @@ Beta 2 candidate, frozen 2026-10-08: only fixes from here on.
   прошивка закончит отключение.
 - LTE modem at boot is no longer restarted by the Wi-Fi start.
   Модем при загрузке больше не перезапускается запуском Wi-Fi.
-- Footstrap 0.14.14.
+- Footstrap 0.14.14 with the project's warm dark palette by default; a
+  paw-print background is installed but off (Footstrap menu, Wallpaper:
+  Pattern, or `opiz3-pattern paws`). `qmi-utils` (`qmicli`) added.
+  Footstrap 0.14.14 в тёплой тёмной палитре проекта; фон с лапами
+  установлен, но выключен (меню Footstrap, Wallpaper: Pattern, или
+  `opiz3-pattern paws`). Добавлен `qmi-utils` (`qmicli`).
 
 ## What to test / Что проверить
 
