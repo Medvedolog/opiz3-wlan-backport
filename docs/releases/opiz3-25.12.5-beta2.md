@@ -38,6 +38,9 @@ trusts. What is in the image and why:
   2026.04 no longer resets the PHY at boot as earlier versions did; our
   U-Boot does it again, and Linux retries the controller if it still
   failed.
+- **USB2 and USB3 enabled**: the two extra USB ports on the 13-pin header
+  (Zero 2, Zero 3) and on the expansion board connector (Zero 2W). The
+  upstream device tree leaves them off.
 - LuCI theme Footstrap 0.14.14.
 - Docs: where the chip, firmware and driver come from and under which
   terms; the firmware is a TV-box build (`sc2355_marlin3_lite_ott`), which
@@ -159,6 +162,9 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
   перестал сбрасывать PHY при старте, как делали прежние версии; наш U-Boot
   снова это делает, а Linux при загрузке запускает контроллер повторно, если
   тот всё же не поднялся.
+- **Включены USB2 и USB3**: два дополнительных USB-порта на 13-контактной
+  гребёнке (Zero 2, Zero 3) и на разъёме платы расширения (Zero 2W). В
+  штатном описании платы (device tree) они выключены.
 - Тема LuCI Footstrap 0.14.14.
 - Документация: откуда чип, прошивка и драйвер и под какими лицензиями;
   прошивка собрана для ТВ-приставок (`sc2355_marlin3_lite_ott`) — отсюда

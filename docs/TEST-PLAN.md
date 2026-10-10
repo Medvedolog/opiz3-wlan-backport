@@ -8,7 +8,8 @@ radio is not always phy0/radio0).
 ## Beta 2 freeze and the release gate (from 2026-10-08)
 
 Beta 2 is frozen at: U-Boot 2026.04 with the PHY reset patch,
-kmod-uwe5622 r30, the `opiz3-emac` fallback. From here only fixes for
+kmod-uwe5622 r30, the `opiz3-emac` fallback. Exception agreed on
+2026-10-10: USB2/USB3 (header / expansion board) enabled in the DTB. From here only fixes for
 what this gate or the repeater test finds go in, at most one or two
 changes per test image, so a new failure points at one change.
 
@@ -26,6 +27,9 @@ Zero 3, Ethernet cable to a PC, UART attached). Send the output.
 4. Wi-Fi over three `reboot` in a row: every boot shows
    `lc phy0-ap0 open` and the AP, no watchdog reset.
 5. LuCI opens over Ethernet and over the AP.
+6. (from 2026-10-10) USB2/USB3 on the 13-pin header: a USB device wired
+   to the header's USB pins shows up in `lsusb`, and the main USB port
+   still works.
 
 Release only when the gate and the repeater test pass on the final image
 and the user says so.

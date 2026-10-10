@@ -21,6 +21,12 @@ Beta 2 candidate, frozen 2026-10-08: only fixes from here on.
   прошивка закончит отключение.
 - LTE modem at boot is no longer restarted by the Wi-Fi start.
   Модем при загрузке больше не перезапускается запуском Wi-Fi.
+- USB2 and USB3 on the 13-pin header (Zero 2 / Zero 3) or the expansion
+  board (Zero 2W) are enabled (beta 2 exception). Check: a device there
+  shows up in `lsusb`.
+  USB2 и USB3 на гребёнке (Zero 2 / Zero 3) или плате расширения (Zero 2W)
+  включены (исключение для beta 2). Проверка: устройство там видно в
+  `lsusb`.
 - Footstrap 0.14.14 with the project's warm dark palette by default; a
   paw-print background is installed but off (Footstrap menu, Wallpaper:
   Pattern, or `opiz3-pattern paws`). `qmi-utils` (`qmicli`) added.
