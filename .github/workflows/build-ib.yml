@@ -38,6 +38,11 @@ on:
         description: Start the SDK build from scratch (ignore the build cache)
         type: boolean
         default: false
+      runner:
+        description: Where the package and image jobs run
+        type: choice
+        options: [github, self-hosted]
+        default: github
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -82,7 +87,7 @@ jobs:
   # scripts/stable-mtimes.py keeps unchanged packages from rebuilding, so a
   # driver change recompiles just the driver.
   packages:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted","Linux","X64"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -243,11 +248,13 @@ jobs:
           sed -i 's|^include \$(INCLUDE_DIR)/package.mk|PKG_RELEASE:=101\n&|' "$IW/Makefile"
           grep -n '^PKG_RELEASE:=101' "$IW/Makefile"
 
+          rm -rf /tmp/footstrap  # self-hosted runners keep /tmp
           git clone --depth 1 --branch "$FOOTSTRAP_TAG" \
             https://github.com/VizzleTF/luci-theme-footstrap.git /tmp/footstrap
           rm -rf package/luci-theme-footstrap
           cp -a /tmp/footstrap/luci-theme-footstrap package/
 
+          rm -rf /tmp/awg  # self-hosted runners keep /tmp
           git clone https://github.com/2Grey/awg-openwrt.git /tmp/awg
           git -C /tmp/awg checkout "$AWG_COMMIT"
           for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
@@ -390,7 +397,7 @@ jobs:
 
   image:
     needs: packages
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner == 'self-hosted' && fromJSON('["self-hosted","Linux","X64"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -487,10 +494,12 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu bison flex libssl-dev \
             libgnutls28-dev uuid-dev swig python3-dev python3-setuptools python3-pyelftools
           export CROSS_COMPILE=aarch64-linux-gnu-
+          rm -rf /tmp/tfa  # self-hosted runners keep /tmp
           git clone -q --depth 1 -b "$TFA_TAG" https://github.com/ARM-software/arm-trusted-firmware /tmp/tfa
           make -C /tmp/tfa -j"$(nproc)" PLAT=sun50i_h616 DEBUG=0 bl31 >/tmp/tfa.log 2>&1 ||
             { tail -50 /tmp/tfa.log; exit 1; }
           BL31=/tmp/tfa/build/sun50i_h616/release/bl31.bin
+          rm -rf /tmp/uboot  # self-hosted runners keep /tmp
           git clone -q --depth 1 -b "$UBOOT_TAG" https://github.com/u-boot/u-boot /tmp/uboot
           test "$(git -C /tmp/uboot rev-parse HEAD)" = "$UBOOT_COMMIT"
           # our fixes on top of the release (uboot/patches/*.patch)
