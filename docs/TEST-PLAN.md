@@ -41,6 +41,9 @@ and the user says so.
 - Country code: hand the firmware the kernel's regulatory rules.
 - Repeater stress test again on a clean image.
 - U-Boot: report the dropped PHY reset upstream.
+- CI: move the SDK package build to the self-hosted runner
+  (`runs-on: [self-hosted, Linux, X64]`, WSL2, 8 cores), keep the rest
+  on GitHub-hosted runners.
 
 ## Beta 1 (r14 and later)
 
