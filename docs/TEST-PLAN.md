@@ -34,6 +34,14 @@ Zero 3, Ethernet cable to a PC, UART attached). Send the output.
 Release only when the gate and the repeater test pass on the final image
 and the user says so.
 
+### After beta 2
+
+- Kernel patch 900 (source build, `build-image.yml`): enable
+  ehci2/ohci2/ehci3/ohci3 like the ImageBuilder build does in the DTB.
+- Country code: hand the firmware the kernel's regulatory rules.
+- Repeater stress test again on a clean image.
+- U-Boot: report the dropped PHY reset upstream.
+
 ## Beta 1 (r14 and later)
 
 | # | Area | How | Expected |
