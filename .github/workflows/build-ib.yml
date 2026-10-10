@@ -454,12 +454,14 @@ jobs:
             DTB=$(find build_dir -path "*/arch/arm64/boot/dts/allwinner/$dts.dtb" | head -1)
             test -n "$DTB"
             python3 ../scripts/zero3-dtb-add-wifi.py "$DTB" "/tmp/$name.dtb"
-            cp "/tmp/$name.dtb" "$DTB"
-            test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
             # USB2 and USB3: the 13-pin header (Zero 2 / Zero 3) or the
             # expansion board connector (Zero 2W); off in the upstream DTS
             for u in 5310000 5310400 5311000 5311400; do
-              fdtput -t s "$DTB" "/soc/usb@$u" status okay
+              fdtput -t s "/tmp/$name.dtb" "/soc/usb@$u" status okay
+            done
+            cp "/tmp/$name.dtb" "$DTB"
+            test "$(fdtget "$DTB" /soc/mmc@4021000 status)" = okay
+            for u in 5310000 5310400 5311000 5311400; do
               test "$(fdtget "$DTB" "/soc/usb@$u" status)" = okay
             done
             # the IB has no rule to rebuild the kernel, so put the DTB into
