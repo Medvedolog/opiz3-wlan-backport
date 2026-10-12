@@ -19,7 +19,7 @@ What sets it apart from earlier builds:
   far enough to explain its failures. All findings are published in
   [docs/](docs/).
 
-> Status: **beta 1** ([release](../../releases/tag/opiz3-25.12.5-beta1)).
+> Status: **beta 2** ([release](../../releases/tag/opiz3-25.12.5-beta2)).
 > Verified on a Zero 3: 5 GHz VHT80 and 2.4 GHz AP, client mode on 2.4 GHz,
 > LTE uplink, per-client traffic and TX rate, firmware recovery in ~14 s.
 > Not yet: AP and client at the same time, per-client signal (the firmware
@@ -80,7 +80,7 @@ Hardware results of 2026-10-06 (Zero 3, r15 image + r16/r17 fixes), see
 | 5 GHz AP, ch36 VHT80 | **Works, default from r17.** 1 h 14 min, two clients at VHT-MCS 9 / 433 Mbit/s, no firmware assert |
 | 2.4 GHz AP, HT20 | Works (phone online through the board) |
 | Client (STA) mode | **Works on 2.4 GHz** (phone hotspot): connect, DHCP, internet, reconnect after the uplink returns (~35 s), signal and rate reported |
-| AP + client at the same time (repeater) | **Not working.** Both interfaces get the same MAC (the driver ignores a MAC change in AP mode); clients see the AP but cannot join. Planned for beta 2 |
+| AP + client at the same time (repeater) | **Experimental, from beta 2.** Separate MACs, LAN clients online through the uplink. A Wi-Fi restart can hang the board (see the beta 2 notes); put the AP on the uplink's channel |
 | LTE modem as uplink, Wi-Fi for clients | Works (QMI modem, ModemManager). The image puts `modem` and `wwan` into the wan zone |
 | Client list, per-client bytes/packets | Works (patch 270). TX counts what was queued to the firmware |
 | Per-client TX bitrate | Works with `cp_txrate=1` (patch 240): live rate, e.g. 433.3 Mbit/s VHT-MCS 9 80 MHz, changing with conditions. Off by default |
