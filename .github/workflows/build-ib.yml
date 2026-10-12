@@ -269,13 +269,14 @@ jobs:
           # it with apk upgrade.
           rm -rf package/luci-app-amneziawg
           cp -a /tmp/awg/luci-proto-amneziawg package/luci-app-amneziawg
-          # one version for the whole set (luci.mk would take it from git,
-          # which the copy does not have); release 2 replaces the old page
+          # one version for the whole set, the translation included (luci.mk
+          # would take it from git, which the copy does not have, so they
+          # came out as version 0); release 2 replaces the old page
           AWG_VERSION=$(sed -n 's/^PKG_VERSION:=//p' package/kmod-amneziawg/Makefile)
           sed -i '/^PKG_VERSION:=/d; /^PKG_RELEASE:=/d' package/luci-app-amneziawg/Makefile
-          sed -i "s|^include \$(TOPDIR)/feeds/luci/luci.mk|PKG_VERSION:=$AWG_VERSION\nPKG_RELEASE:=2\n\n&|" \
+          sed -i "s|^include \$(TOPDIR)/feeds/luci/luci.mk|PKG_VERSION:=$AWG_VERSION\nPKG_RELEASE:=2\nPKG_PO_VERSION:=$AWG_VERSION\n\n&|" \
             package/luci-app-amneziawg/Makefile
-          grep -n '^PKG_\(VERSION\|RELEASE\):=' package/luci-app-amneziawg/Makefile
+          grep -n '^PKG_\(VERSION\|RELEASE\|PO_VERSION\):=' package/luci-app-amneziawg/Makefile
           grep -q awg_rekey_after_time \
             package/luci-app-amneziawg/htdocs/luci-static/resources/protocol/amneziawg.js
 
@@ -768,6 +769,7 @@ jobs:
           chk 'test -x "$ROOT/usr/sbin/uwe5622-hostap-macaddr" && grep -q "^	let reuse_ifname = find_reusable_wdev(phyidx);$" "$ROOT/usr/share/hostap/common.uc"'
           chk 'grep -q "return hw;" "$ROOT/usr/share/ucode/iwinfo.uc"'
           chk 'test -f "$ROOT/usr/share/rpcd/ucode/opiz3.uc"'
+          chk 'test -x "$ROOT/usr/sbin/opiz3-luci-nosig" && python3 ../scripts/check-luci-nosig.py "$ROOT"'
           chk 'test -f "$ROOT/www/luci-static/resources/view/status/include/15_opiz3.js"'
           chk 'test -f "$ROOT/www/luci-static/resources/view/opiz3/cpufreq.js"'
           chk 'grep -q "governor .ondemand." "$ROOT/etc/config/opiz3"'

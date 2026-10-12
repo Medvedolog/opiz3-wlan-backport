@@ -92,7 +92,7 @@ Commands in [docs/TEST-PLAN.md](docs/TEST-PLAN.md):
 | LTE modem as uplink, Wi-Fi for clients | Works (QMI modem, ModemManager). The image puts `modem` and `wwan` into the wan zone |
 | Client list, per-client bytes/packets | Works (patch 270). TX counts what was queued to the firmware |
 | Per-client TX bitrate | Works with `cp_txrate=1` (patch 240): live rate, e.g. 433.3 Mbit/s VHT-MCS 9 80 MHz, changing with conditions. Off by default |
-| Per-client RSSI, RX bitrate (AP mode) | Not available: the firmware does not report them (RE §37–§43, §52, §58) |
+| Per-client RSSI, RX bitrate (AP mode) | Not available: the firmware does not report them (RE §37–§43, §52, §58). LuCI shows the AP as up with its client count, and a client's signal as `---` with a tooltip saying so (`opiz3-luci-nosig`) |
 | TX power | Not reported: no firmware command to read it (RE §59) |
 | `wifi up` log | Clean: no `-95`/`-12`, real phy MAC (patch 280) |
 | Driver name | "Unisoc UWE5622" in LuCI and the `iwinfo` CLI |
@@ -222,7 +222,10 @@ Details, and what `-n` does, in the
 
 The default image includes:
 - LuCI with the Footstrap theme (project palette; paw-print background
-  available, off by default: `opiz3-pattern paws`);
+  available, off by default: `opiz3-pattern paws`). Other colours:
+  Footstrap's Appearance menu → Palette (Footstrap, Bootstrap, high
+  contrast…) and the colour fields; this choice is kept in the browser and
+  overrides the router's defaults;
 - AmneziaWG and WireGuard;
 - sing-box;
 - USB Wi-Fi drivers;

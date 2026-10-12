@@ -51,6 +51,14 @@ repeater recheck moved to after beta 2.
   built from `luci-proto-amneziawg` of the same pinned 2Grey commit under
   the old package name, release 2, so `apk upgrade` replaces it. Check
   with gate item 7.
+- LuCI signal icons: an AP without client RSSI showed a grey icon and
+  "No client associated", each client a full icon by accident (signal 0
+  read as 100 %). `opiz3-luci-nosig` (luci-app-opiz3-status) edits the
+  minified LuCI views at boot: AP up with clients → "on" icon and the
+  client count, client without RSSI → neutral icon and `---`, tooltip
+  "Signal strength is not reported by the Wi-Fi driver". Check: Network →
+  Wireless and Status → Overview with two clients on the AP, after
+  `apk upgrade luci-app-opiz3-status` and after a reboot.
 - Country code: hand the firmware the kernel's regulatory rules.
 - Repeater stress test again on a clean image.
 - U-Boot: report the dropped PHY reset upstream.

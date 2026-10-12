@@ -1,0 +1,4 @@
+#!/bin/sh
+# apply the LuCI signal-icon edits right after install or upgrade
+/usr/sbin/opiz3-luci-nosig
+exit 0

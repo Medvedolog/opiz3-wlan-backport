@@ -1,0 +1,56 @@
+{
+ "_comment": [
+  "LuCI shows a grey signal icon and 'No client associated' for an access",
+  "point whose driver reports no client RSSI (UWE5622 in AP mode), and a full",
+  "icon for each client by accident. opiz3-luci-nosig applies these edits to the",
+  "minified LuCI 25.12 views: an AP with clients gets an 'on' icon and its client",
+  "count, a client without RSSI a neutral icon and '---', both with a tooltip",
+  "saying the driver does not report it. A file is changed only if every anchor",
+  "is found exactly once; the CI checks the anchors against the built image."
+ ],
+ "marker": "opiz3-nosig",
+ "files": [
+  {
+   "path": "/www/luci-static/resources/view/network/wireless.js",
+   "edits": [
+    [
+     "function render_signal_badge(signalPercent,signalValue,noiseValue,wrap,mode){",
+     "/*opiz3-nosig*/function opiz3_nosig_badge(ap,wrap,n){return E('div',{'class':wrap?'center':'ifacebadge','title':_('Signal strength is not reported by the Wi-Fi driver')},[E('img',{'src':L.resource(ap?'icons/signal-075-100.svg':'icons/signal-000-000.svg')}),E('span',{},[wrap?E('br'):' ',ap?_('Associations')+': '+n:'---\\xa0'+_('dBm')])]);}\nfunction render_signal_badge(signalPercent,signalValue,noiseValue,wrap,mode){if(signalPercent==-2||signalPercent==-3)return opiz3_nosig_badge(signalPercent==-3,wrap,arguments[5]);"
+    ],
+    [
+     "function render_network_badge(radioNet){return render_signal_badge(radioNet.isUp()?radioNet.getSignalPercent():-1,",
+     "function render_network_badge(radioNet,nassoc){if(radioNet.isUp()&&radioNet.getMode()=='ap'&&nassoc>0&&!radioNet.getSignal())return render_signal_badge(-3,null,null,false,'ap',nassoc);return render_signal_badge(radioNet.isUp()?radioNet.getSignalPercent():-1,"
+    ],
+    [
+     "dom.content(badge,render_network_badge(radioNet));",
+     "dom.content(badge,render_network_badge(radioNet,data[3].filter(b=>b.network.getName()==radioNet.getName()).length));"
+    ],
+    [
+     "render_signal_badge(Math.min((bss.signal+110)/70*100,100),bss.signal,bss.noise)",
+     "render_signal_badge(bss.signal?Math.min((bss.signal+110)/70*100,100):-2,bss.signal,bss.noise)"
+    ]
+   ]
+  },
+  {
+   "path": "/www/luci-static/resources/view/status/include/60_wifi.js",
+   "edits": [
+    [
+     "icon=L.resource('icons/signal-075-100.svg');let WPS_button=null;",
+     "icon=L.resource('icons/signal-075-100.svg');/*opiz3-nosig*/const opiz3_nosig=!net.isDisabled()&&net.getMode()=='ap'&&net.assoclist?.length>0&&!net.getSignal();if(opiz3_nosig)\nicon=L.resource('icons/signal-075-100.svg');let WPS_button=null;"
+    ],
+    [
+     "const badge=renderBadge(icon,'%s: %d dBm / %s: %d%%'.format(_('Signal'),net.getSignal(),_('Quality'),quality),",
+     "const badge=renderBadge(icon,opiz3_nosig?_('Signal strength is not reported by the Wi-Fi driver'):'%s: %d dBm / %s: %d%%'.format(_('Signal'),net.getSignal(),_('Quality'),quality),"
+    ],
+    [
+     "const q=Math.min((bss.signal+110)/70*100,100);",
+     "const q=bss.signal?Math.min((bss.signal+110)/70*100,100):0;"
+    ],
+    [
+     "else{sig_value='%d\\xa0%s'.format(bss.signal,_('dBm'));",
+     "else if(!bss.signal){sig_value='---\\xa0'+_('dBm');sig_title=_('Signal strength is not reported by the Wi-Fi driver');}else{sig_value='%d\\xa0%s'.format(bss.signal,_('dBm'));"
+    ]
+   ]
+  }
+ ]
+}

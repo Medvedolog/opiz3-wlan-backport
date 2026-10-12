@@ -34,6 +34,8 @@ apply() {
 
 start() {
 	apply
+	# LuCI signal icons for an AP without client RSSI (see the script)
+	/usr/sbin/opiz3-luci-nosig
 }
 
 reload() {
