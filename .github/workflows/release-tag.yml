@@ -54,5 +54,5 @@ jobs:
           # a pushed tag already exists; by hand the tag is created here
           if [ "$GITHUB_EVENT_NAME" = push ]; then T=--verify-tag; else T="--target $GITHUB_SHA"; fi
           gh release create "$TAG" $T --prerelease \
-            --title "Orange Pi Zero 3 / Zero 2 OpenWrt $RELEASE (UWE5622) ${TAG#opiz3-$RELEASE-}" \
+            --title "Orange Pi Zero 3 / Zero 2W / Zero 2 OpenWrt $RELEASE (UWE5622) ${TAG#opiz3-$RELEASE-}" \
             --notes-file "docs/releases/$TAG.md" art/*
