@@ -34,6 +34,10 @@ Zero 3, Ethernet cable to a PC, UART attached). Send the output.
 Release only when the gate and the repeater test pass on the final image
 and the user says so.
 
+Beta 2 released 2026-10-12 (`opiz3-25.12.5-beta2`, commit 84537b3) after
+the gate passed on the final test image on 2026-10-11 (Zero 3, 1 GB); the
+repeater recheck moved to after beta 2.
+
 ### After beta 2
 
 - Kernel patch 900 (source build, `build-image.yml`): enable

@@ -1,4 +1,4 @@
-# Orange Pi Zero 3 (and Zero 2): onboard Wi-Fi (AW859A / UWE5622) on OpenWrt 25.12
+# Orange Pi Zero 3, Zero 2W and Zero 2: onboard Wi-Fi (AW859A / UWE5622) on OpenWrt 25.12
 
 The Orange Pi Zero 3 has an onboard AW859A module (UNISOC UWE5622, SDIO).
 Mainline Linux has no driver for it and OpenWrt does not support it. This
@@ -12,7 +12,7 @@ What sets it apart from earlier builds:
   The driver and the few other packages OpenWrt does not ship come from our
   own signed apk repository.
 - **The driver is fixed, not just compiled.** The vendor driver is hardened
-  against the crashes found so far (25 patches, 010–280). It reports only
+  against the crashes found so far (30 patches, 010–330). It reports only
   numbers that are actually measured, and it refuses settings that crash
   the firmware.
 - **The firmware is understood.** The Wi-Fi firmware was reverse engineered
@@ -21,15 +21,17 @@ What sets it apart from earlier builds:
 
 > Status: **beta 2** ([release](../../releases/tag/opiz3-25.12.5-beta2)).
 > Verified on a Zero 3: 5 GHz VHT80 and 2.4 GHz AP, client mode on 2.4 GHz,
-> LTE uplink, per-client traffic and TX rate, firmware recovery in ~14 s.
-> Not yet: AP and client at the same time, per-client signal (the firmware
-> does not report it), Zero 2 (untested).
-> See [Status](#status).
+> LTE uplink, per-client traffic and TX rate, firmware recovery, Ethernet
+> after a warm reboot. Zero 2W: boots, AP works (user report).
+> Experimental: AP and client at the same time (repeater). Not available:
+> per-client signal (the firmware does not report it). Zero 2: untested.
+> See [Status](#status); install and upgrade: the
+> [beta 2 notes](docs/releases/opiz3-25.12.5-beta2.md).
 
 ## Кратко по-русски
 
-Встроенный Wi-Fi Orange Pi Zero 3 (AW859A/UWE5622) на **официальном OpenWrt
-25.12.5**: 2,4 и 5 ГГц, точка доступа и клиент, настройка через LuCI.
+Встроенный Wi-Fi Orange Pi Zero 3 и Zero 2W (AW859A/UWE5622) на **официальном
+OpenWrt 25.12.5**: 2,4 и 5 ГГц, точка доступа и клиент, настройка через LuCI.
 
 - **Официальные kmod ставятся через `apk`.** Образ собран из официального ядра
   через ImageBuilder. Драйвер, прошивка, AmneziaWG и Footstrap лежат в нашем
@@ -71,8 +73,10 @@ What sets it apart from earlier builds:
 
 ## Status
 
-Hardware results of 2026-10-06 (Zero 3, r15 image + r16/r17 fixes), see
-[docs/TEST-PLAN.md](docs/TEST-PLAN.md) for the commands:
+Hardware results on the Zero 3: the table below from 2026-10-06 (r15 image +
+r16/r17 fixes), plus the beta 2 release gate of 2026-10-11 (first boot,
+Ethernet and the AP after three `reboot`s, a power cycle and `sysupgrade`).
+Commands in [docs/TEST-PLAN.md](docs/TEST-PLAN.md):
 
 | Area | State |
 |---|---|
@@ -95,7 +99,9 @@ Hardware results of 2026-10-06 (Zero 3, r15 image + r16/r17 fixes), see
 | DFS channels (52–144), 160 MHz, 40 MHz on 2.4 GHz | Blocked (untested; unverified settings made the firmware assert, RE §45) |
 | Autoload at boot | Delayed load after the network is up, so a stuck SDIO probe cannot block Ethernet ([roadmap](#what-we-are-still-working-on), item 4) |
 | Orange Pi Zero 2 | Built, untested |
-| Orange Pi Zero 2W | Boots, AP works (1 GB, test image; from beta 2) |
+| Orange Pi Zero 2W | Boots, AP works (1 GB, user report; from beta 2) |
+| Ethernet after `reboot` (Zero 3) | Works from beta 2 (U-Boot resets the PHY again; `opiz3-emac` as fallback) |
+| USB2/USB3 on the 13-pin header / Zero 2W expansion board | Enabled from beta 2; controllers come up, a device on the header pins not tested yet |
 
 Module parameters in `/etc/uwe5622.options`:
 
@@ -134,7 +140,7 @@ specifications, not verified here):
 
 What carries over to any of them:
 
-- the driver patches (010–280) and the packages in the apk repository,
+- the driver patches (010–330) and the packages in the apk repository,
   which are built for `sunxi/cortexa53` (H6, H616, H618);
 - the firmware analysis in [docs/](docs/): `wcnmodem.bin` is the same file;
 - patch 250 (SDIO driver re-registration) on every Allwinner board.
@@ -197,16 +203,26 @@ Each build produces:
   The image ships its key and repository address, so `apk update`
   and `apk add` work for both the official repositories and ours.
 
-Releases are published as `opiz3-25.12.5-latest`. Until the repository owner
-has configured the signing key, builds are available only as Actions
-artifacts.
+Releases: fixed ones such as
+[`opiz3-25.12.5-beta2`](../../releases/tag/opiz3-25.12.5-beta2), and the
+rolling `opiz3-25.12.5-latest` built from `main`. Upgrade a board over the
+network (`-p` writes U-Boot too; keep your image type, squashfs or ext4):
+
+```sh
+wget -O /tmp/fw.img.gz https://github.com/Medvedolog/opiz3-wlan-backport/releases/download/opiz3-25.12.5-beta2/openwrt-25.12.5-sunxi-cortexa53-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
+sysupgrade -p /tmp/fw.img.gz
+```
+
+Details, and what `-n` does, in the
+[beta 2 notes](docs/releases/opiz3-25.12.5-beta2.md).
 
 The default image includes:
-- LuCI with the Footstrap theme;
+- LuCI with the Footstrap theme (project palette; paw-print background
+  available, off by default: `opiz3-pattern paws`);
 - AmneziaWG and WireGuard;
 - sing-box;
 - USB Wi-Fi drivers;
-- modem support (ModemManager, QMI, MBIM, NCM, RNDIS, serial).
+- modem support (ModemManager, QMI with `qmicli`, MBIM, NCM, RNDIS, serial).
 
 The full list, with the reason for each package, is in
 [docs/IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md). Anything else can be
@@ -267,7 +283,7 @@ the firmware's behaviour stayed as they were.
 |---|---|---|
 | OpenWrt | 24.10 / 25.12.0, custom kernel | 25.12.5, **official kernel** |
 | Official kmods via `apk` | No (kernel ABI differs) | **Yes** |
-| Driver base | Older vendor source | Current Armbian `cc2835a` + 25 patches |
+| Driver base | Older vendor source | Current Armbian `cc2835a` + 30 patches |
 | 5 GHz AP | Via DeepAQ's DS IE fix | Same fix, root cause found in the firmware |
 | Memory safety | Vendor code as is | Fixed: ADDBA array overflow (190), sleeping allocation in atomic context (130), ADDBA/queue race (160), leaked card reference (220), stack VLAs (070) |
 | Client list in LuCI | No `dump_station` in the vendor driver | Implemented (060) |
@@ -295,6 +311,12 @@ The firmware findings explain three long-standing problems:
    station LUT (§46–§49). Patch 230 reads that table over SDIO for diagnosis.
 
 ## What we are still working on
+
+After beta 2 (in this order): the repeater stress test again on a clean
+image; the country code for the firmware (rules from the kernel's
+regulatory database); Wi-Fi recovery that does not wait on a dead firmware
+while holding the network lock; the YT8531 PHY fix sent to U-Boot
+([draft](docs/upstream/uboot-yt8531-power-down.md)). Longer term:
 
 1. **Hardware confirmation of the latest series.**
    - Patches 240–280 (`cp_txrate=1` against what the phone reports).
@@ -347,6 +369,11 @@ Applied on top of `armbian/uwe5622@cc2835a` in
 | 260 | `cp_mem` debugfs: read-only dump of the firmware data area (RE) |
 | 270 | Per-client bytes and packets (host counters) |
 | 280 | Quiet `wifi up`: antenna and TX power "auto" accepted instead of `-95`, distance no longer sent to the firmware as an empty `SET_PARAM` (a possible source of `-12` on a healthy chip; a `-12` after a firmware assert is a dead chip and is not affected); phy MAC (no `00:00:00…`); TCP/UDP checksum features without the "mixed HW and IP checksum" warning |
+| 290 | Per-interface MAC: AP and station on one radio (repeater) |
+| 300 | `wifi_ram` debugfs: hardware per-LUT tables (RE) |
+| 310 | Wait for the firmware's disconnect event before the interface is deleted |
+| 320 | Log every interface step (`sprdwl: lc ...`) |
+| 330 | Loopcheck: a missed firmware heartbeat no longer blocks its own recovery |
 
 Further pieces:
 
@@ -355,6 +382,11 @@ Further pieces:
   adds the Wi-Fi nodes to the Zero 2 / Zero 3 device tree.
   [`scripts/zero3-dtb-add-wifi.py`](scripts/zero3-dtb-add-wifi.py) produces
   the same result on the official DTB.
+- **U-Boot patch** ([`uboot/patches/`](uboot/patches/)): soft-reset the
+  Ethernet PHY again at boot, as U-Boot did up to 2025.01; without it the
+  port stays dead after a warm reboot.
+- **USB2/USB3:** the image enables `ehci2/ohci2/ehci3/ohci3` in the DTB next
+  to the Wi-Fi nodes.
 - **iwinfo patch 900:** identifies platform Wi-Fi devices by modalias.
   The 25.12 `iwinfo` command line tool is a ucode script with its own
   device table; `uwe5622-iwinfo-name` (run at boot) adds the same modalias
@@ -378,7 +410,10 @@ Two workflows in `.github/workflows/`:
   Packages are rebuilt only when `package/` or the package job changes.
   Otherwise the last signed repository is reused and a run takes a few
   minutes. Rebuilds start from a cached SDK `build_dir`. Manual-run inputs:
-  `rebuild_packages`, `clean_sdk`.
+  `rebuild_packages`, `clean_sdk`, and `runner` (`github` or a
+  `self-hosted` runner for the package and image jobs).
+- **`release-tag.yml`.** Turns the tested rolling build into a fixed release
+  with the notes from `docs/releases/<tag>.md`; nothing is rebuilt.
 - **`build-image.yml`.** Full source build with kernel patch 900, for
   development. Its kernel is not the official one, so official kmods do not
   install on it.
