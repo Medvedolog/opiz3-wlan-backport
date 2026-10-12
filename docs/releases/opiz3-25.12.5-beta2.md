@@ -98,10 +98,12 @@ the Zero 2 image.
   chip moves the AP there and its clients reconnect.
 - **Modem tools that rebind the modem's serial ports.** A service that
   unbinds and rebinds a USB modem's serial ports (`option` driver) while
-  ModemManager holds them can corrupt kernel memory: random freezes,
-  reboots and kernel oopses, often near the Wi-Fi start at boot. The image
-  itself does not do this; keep such a tool and ModemManager off the same
-  ports.
+  ModemManager holds them is a suspect (not proven) for random freezes,
+  reboots and kernel oopses seen with several modems on a powered hub;
+  the Wi-Fi driver and the hub's power are suspects too. Keep such a tool
+  and ModemManager off the same ports. Dell DW5821e (413c:81e0): the
+  image's usb-modeswitch rule sets its USB configuration to 0 again on
+  every USB add event; being checked.
 - **Country code only partly applied to the onboard Wi-Fi.** The kernel
   applies the country's channel limits (DE: channel 14 off, 149-165 at
   13 dBm), but the vendor driver knows only US, CN, NL, CZ, JP and TR and
@@ -265,9 +267,12 @@ OpenWrt 25.12.5 с официальным ядром: любые kmod с downloa
 - **Утилиты для модемов, перепривязывающие их порты.** Служба, которая
   отвязывает и снова привязывает последовательные порты USB-модема
   (драйвер `option`), пока их держит ModemManager, может портить память
-  ядра: случайные зависания, перезагрузки и падения ядра, часто около
-  старта Wi-Fi при загрузке. Сам образ так не делает; не давайте такой
-  утилите и ModemManager одни и те же порты.
+  ядра — это одна из версий (не доказана) случайных зависаний,
+  перезагрузок и падений ядра с несколькими модемами на активном хабе;
+  под подозрением также драйвер Wi-Fi и питание хаба. Не давайте такой
+  утилите и ModemManager одни и те же порты. Dell DW5821e (413c:81e0):
+  правило usb-modeswitch из образа заново ставит модему USB-конфигурацию 0
+  при каждом подключении USB-устройства; разбираемся.
 - **Страна применяется к встроенному Wi-Fi не полностью.** Ограничения
   каналов ядро применяет (DE: канал 14 выключен, 149–165 — 13 дБм), но
   драйвер производителя знает только US, CN, NL, CZ, JP и TR и для

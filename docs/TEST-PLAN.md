@@ -46,6 +46,12 @@ repeater recheck moved to after beta 2.
 
 - Kernel patch 900 (source build, `build-image.yml`): enable
   ehci2/ohci2/ehci3/ohci3 like the ImageBuilder build does in the DTB.
+- usb-modeswitch and DW5821e (413c:81e0): the rule sets config #0 and
+  is reapplied on every USB add event, 27 times in 10 s before the
+  2026-10-12 Oops. Check what the upstream usb-modeswitch-data rule means
+  for this modem and whether the image should drop or override it.
+- Hang/crash cause (2026-10-09/12) not established: A/B without the
+  third-party service, full Oops trace via netconsole.
 - AmneziaWG web page: the beta 2 image shipped the old AWG 1.0
   `luci-app-amneziawg` (import dropped Jc/S/H, no AWG 2.0 fields). Now
   built from `luci-proto-amneziawg` of the same pinned 2Grey commit under
@@ -278,7 +284,7 @@ needs: the loopcheck there also failed exactly start + 4 s.
 
 Open at this point: what froze CPU 3.
 
-### Cause: a third-party modem service against ModemManager (2026-10-09)
+### Suspect: a third-party modem service against ModemManager (2026-10-09)
 
 Further boots the same day, all with two USB modems on a powered hub
 (Fibocom FM350-GL and a Qualcomm X55) and a third-party modem service
@@ -302,17 +308,40 @@ places: here a hard-stuck CPU, the Oops, the resets. The service was
 also on the dead CPU 3's run queue above, and ModemManager was blocked
 in `usb_wwan`.
 
-Conclusion: these hangs are attributed to the conflict between that
-service and ModemManager over the modem's serial ports, not to the
-bootloader (the Oops happened on OpenWrt's U-Boot) and not to the Wi-Fi
-driver. The timing near the Wi-Fi start is the busiest moment of the
-boot, not the cause. Not part of the image, so nothing changes in beta 2.
+Conclusion at the time: the hangs were attributed to that service. Not
+the bootloader (the Oops happened on OpenWrt's U-Boot), but **not proven
+either way** (revised 2026-10-12, below): CPU 3 stopped exactly at the
+Wi-Fi chip power-on, and `sdiohal_rx_thread` was on its run queue next to
+the service, so the Wi-Fi driver is as much a suspect as the service.
 
 What stays valid: patch 330 (the vendor loopcheck self-deadlock is a
 real bug, found in the code). What needs a recheck on an image without
 third-party services: the repeater stress result (about 1 in 10, which
 was measured after 2026-10-07) and the rare freeze at boot without a
 client.
+
+### Revised 2026-10-12: cause not established
+
+A second look at the logs, with the service's developer:
+
+- 2026-10-09: no modem event before CPU 3 stopped; the stop matches the
+  Wi-Fi chip power-on (`sdiohal_scan_card`, 38.1 s). Blocked: `ucode`
+  (wifi/hostapd) and `iw` in cfg80211/sprdwl_ng, `wpa_supplicant`,
+  `ipv6_addrconf`, rtnl; ModemManager in usb_wwan looks like a victim.
+- 2026-10-12 Oops (three modems on the powered hub): at 1431 s the whole
+  hub dropped off and came back (power), then from 1443 s **usbmode from
+  the image's usb-modeswitch** set config #0 on the Dell DW5821e
+  (413c:81e0) 27 times while its interface was claimed (`usbfs: interface
+  1 claimed by usbfs while 'usbmode' sets config #0`); the NULL-deref Oops
+  followed at 1554 s, call trace lost on the UART. The image's
+  `/etc/usb-mode.json` has `413c:81e0 {"config": 0}`; every USB add event
+  runs `/etc/init.d/usbmode start`, which applies it again.
+
+So none of the three hangs/crashes has a proven cause. Candidates on our
+side: the Wi-Fi driver (teardown/unload, see the repeater test), the
+usb-modeswitch rule for DW5821e, the hub's power. To settle it: A/B over
+several days, one modem and no third-party service, then with it; for the
+next Oops capture the full trace (netconsole or a UART log to file).
 
 ## Orange Pi Zero 2W, test image (r22, 2026-10-07)
 

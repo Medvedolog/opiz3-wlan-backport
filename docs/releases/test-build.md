@@ -57,11 +57,15 @@ README) and attach the archive. / Для отчёта запустите на п
   модемов); watchdog перезагружает через ~16 с. Если подключён UART —
   пришлите последние строки `sprdwl: lc` и `WCN`.
 - A third-party modem tool that unbinds/rebinds the modem's serial ports
-  while ModemManager holds them can corrupt kernel memory (random
-  freezes, reboots, oopses). The image does not do this.
+  while ModemManager holds them is a suspect (not proven) for random
+  freezes, reboots and oopses; the Wi-Fi driver and the hub's power are
+  suspects too. Dell DW5821e: the image's usb-modeswitch rule resets its
+  USB configuration to 0 on every USB add event (being checked).
   Сторонняя утилита, перепривязывающая порты модема, пока их держит
-  ModemManager, может портить память ядра (зависания, перезагрузки,
-  падения). Сам образ так не делает.
+  ModemManager, — одна из версий (не доказана) зависаний, перезагрузок и
+  падений; под подозрением также драйвер Wi-Fi и питание хаба. Dell
+  DW5821e: правило usb-modeswitch из образа сбрасывает модему
+  USB-конфигурацию в 0 при каждом подключении USB-устройства (разбираемся).
 - The country code is only partly applied to the onboard Wi-Fi: the
   kernel's channel limits work (DE: ch 14 off, 149-165 at 13 dBm), but the
   driver gives the firmware world rules and the beacon has no country
