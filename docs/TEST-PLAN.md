@@ -30,6 +30,10 @@ Zero 3, Ethernet cable to a PC, UART attached). Send the output.
 6. (from 2026-10-10) USB2/USB3 on the 13-pin header: a USB device wired
    to the header's USB pins shows up in `lsusb`, and the main USB port
    still works.
+7. (from 2026-10-12) AmneziaWG: import a real AWG 2.0 `.conf` (with
+   S3/S4, I1–I5, H1–H4 ranges) in LuCI → Interfaces → Add → AmneziaWG →
+   Import; every field is filled, Save & Apply, `awg show` shows the
+   options and a handshake.
 
 Release only when the gate and the repeater test pass on the final image
 and the user says so.
@@ -42,6 +46,11 @@ repeater recheck moved to after beta 2.
 
 - Kernel patch 900 (source build, `build-image.yml`): enable
   ehci2/ohci2/ehci3/ohci3 like the ImageBuilder build does in the DTB.
+- AmneziaWG web page: the beta 2 image shipped the old AWG 1.0
+  `luci-app-amneziawg` (import dropped Jc/S/H, no AWG 2.0 fields). Now
+  built from `luci-proto-amneziawg` of the same pinned 2Grey commit under
+  the old package name, release 2, so `apk upgrade` replaces it. Check
+  with gate item 7.
 - Country code: hand the firmware the kernel's regulatory rules.
 - Repeater stress test again on a clean image.
 - U-Boot: report the dropped PHY reset upstream.

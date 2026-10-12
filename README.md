@@ -228,6 +228,18 @@ The default image includes:
 - USB Wi-Fi drivers;
 - modem support (ModemManager, QMI with `qmicli`, MBIM, NCM, RNDIS, serial).
 
+> **AmneziaWG web page fixed after beta 2.** The beta 2 image shipped
+> the old AWG 1.0 page: importing a `.conf` lost Jc/S/H, and there were
+> no fields for the AWG 2.0 options (S3/S4, I1–I5, H1–H4 ranges,
+> ContentPaddingAddition, Rekey…). The kernel module already supported
+> them. The repo now carries the current page (`luci-proto-amneziawg`
+> 3.1, still installed as `luci-app-amneziawg`). Update on the board, no
+> reflash, settings kept:
+> ```sh
+> apk update && apk upgrade luci-app-amneziawg
+> ```
+> then reload LuCI with Ctrl+F5 and import the `.conf` again.
+
 The full list, with the reason for each package, is in
 [docs/IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md). Anything else can be
 installed with `apk`.

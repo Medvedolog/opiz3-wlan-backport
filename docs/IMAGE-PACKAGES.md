@@ -18,7 +18,7 @@ installs with `apk` from the official repositories or ours.
 | `iwinfo`, `libiwinfo`, `libiwinfo-data` | Rebuilt so LuCI and the `iwinfo` CLI show "Unisoc UWE5622" instead of "Generic" |
 | `luci-app-opiz3-status` | "Board" panel (temperatures, CPU, Wi-Fi driver/firmware state, clients table) and System → CPU frequency |
 | `luci-theme-footstrap` | Default LuCI theme (mobile-friendly); `luci-theme-bootstrap` stays as a fallback |
-| `kmod-amneziawg`, `amneziawg-tools`, `luci-app-amneziawg` | WireGuard with obfuscation, for networks where plain WireGuard is blocked; built against the official kernel, so it is not in the official feed |
+| `kmod-amneziawg`, `amneziawg-tools`, `luci-app-amneziawg` | WireGuard with obfuscation, for networks where plain WireGuard is blocked; built against the official kernel, so it is not in the official feed. The web page is 2Grey's `luci-proto-amneziawg` (AWG 2.0/3.1 options) packaged under the old name |
 
 ## Official packages
 
@@ -68,7 +68,7 @@ USB-Ethernet, раздача по встроенному Wi-Fi, при жела�
 | `iwinfo`, `libiwinfo`, `libiwinfo-data` | Пересобраны, чтобы LuCI и `iwinfo` показывали «Unisoc UWE5622», а не «Generic» |
 | `luci-app-opiz3-status` | Панель «Board» (температуры, CPU, драйвер и прошивка Wi-Fi, таблица клиентов) и System → CPU frequency |
 | `luci-theme-footstrap` | Тема LuCI по умолчанию (удобна с телефона); `luci-theme-bootstrap` оставлена запасной |
-| `kmod-amneziawg`, `amneziawg-tools`, `luci-app-amneziawg` | WireGuard с обфускацией — там, где обычный WireGuard блокируют; собран под официальное ядро, в официальном репозитории его нет |
+| `kmod-amneziawg`, `amneziawg-tools`, `luci-app-amneziawg` | WireGuard с обфускацией — там, где обычный WireGuard блокируют; собран под официальное ядро, в официальном репозитории его нет. Веб-страница — `luci-proto-amneziawg` от 2Grey (параметры AWG 2.0/3.1) под старым именем пакета |
 
 ## Официальные пакеты
 

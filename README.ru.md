@@ -196,6 +196,19 @@ sysupgrade -p /tmp/fw.img.gz
 - поддержка модемов (ModemManager, QMI с `qmicli`, MBIM, NCM, RNDIS,
   последовательные порты).
 
+> **Страница AmneziaWG исправлена после beta 2.** В образе beta 2 стояла
+> старая страница для AWG 1.0: при импорте `.conf` терялись Jc/S/H, а
+> полей для параметров AWG 2.0 (S3/S4, I1–I5, диапазоны H1–H4,
+> ContentPaddingAddition, Rekey…) не было, хотя модуль ядра их
+> поддерживал. В репозитории теперь актуальная страница
+> (`luci-proto-amneziawg` 3.1, ставится под старым именем
+> `luci-app-amneziawg`). Обновление на плате, без перепрошивки, настройки
+> сохраняются:
+> ```sh
+> apk update && apk upgrade luci-app-amneziawg
+> ```
+> затем обновите LuCI через Ctrl+F5 и импортируйте `.conf` заново.
+
 Полный список с причиной для каждого пакета — в
 [docs/IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md). Всё остальное ставится
 через `apk`.

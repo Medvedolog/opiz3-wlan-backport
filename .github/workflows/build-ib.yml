@@ -211,6 +211,8 @@ jobs:
           ./scripts/feeds update base packages luci
           ./scripts/feeds install iwinfo
           ./scripts/feeds install luci-base
+          # dependencies of the AmneziaWG web UI
+          ./scripts/feeds install luci-lib-uqr resolveip
 
           # cfg80211 backport headers for the UWE5622 driver (not in the SDK)
           BASE_COMMIT=$(sed -n 's|.*openwrt.git^\([0-9a-f]*\).*|\1|p' feeds.conf.default)
@@ -257,16 +259,25 @@ jobs:
           rm -rf /tmp/awg  # self-hosted runners keep /tmp
           git clone https://github.com/2Grey/awg-openwrt.git /tmp/awg
           git -C /tmp/awg checkout "$AWG_COMMIT"
-          for p in kmod-amneziawg amneziawg-tools luci-app-amneziawg; do
+          for p in kmod-amneziawg amneziawg-tools; do
             rm -rf "package/$p"
             cp -a "/tmp/awg/$p" package/
           done
-          # luci.mk takes the version from git, which the copy does not
-          # have, so the package came out as version 0: use the module's
+          # the web UI is luci-proto-amneziawg (AWG 2.0/3.1 options, working
+          # .conf import); luci-app-amneziawg in the same repo is the old
+          # AWG 1.0 page. Built under the old name so installed boards get
+          # it with apk upgrade.
+          rm -rf package/luci-app-amneziawg
+          cp -a /tmp/awg/luci-proto-amneziawg package/luci-app-amneziawg
+          # one version for the whole set (luci.mk would take it from git,
+          # which the copy does not have); release 2 replaces the old page
           AWG_VERSION=$(sed -n 's/^PKG_VERSION:=//p' package/kmod-amneziawg/Makefile)
-          sed -i "s|^include \$(TOPDIR)/feeds/luci/luci.mk|PKG_VERSION:=$AWG_VERSION\nPKG_RELEASE:=1\n\n&|" \
+          sed -i '/^PKG_VERSION:=/d; /^PKG_RELEASE:=/d' package/luci-app-amneziawg/Makefile
+          sed -i "s|^include \$(TOPDIR)/feeds/luci/luci.mk|PKG_VERSION:=$AWG_VERSION\nPKG_RELEASE:=2\n\n&|" \
             package/luci-app-amneziawg/Makefile
-          grep -n '^PKG_VERSION:=' package/luci-app-amneziawg/Makefile
+          grep -n '^PKG_\(VERSION\|RELEASE\):=' package/luci-app-amneziawg/Makefile
+          grep -q awg_rekey_after_time \
+            package/luci-app-amneziawg/htdocs/luci-static/resources/protocol/amneziawg.js
 
           # feeds install already scanned the tree; mac80211 comes from a
           # tarball with old mtimes, so drop the cached package index to
@@ -762,6 +773,7 @@ jobs:
           chk 'grep -q "governor .ondemand." "$ROOT/etc/config/opiz3"'
           chk 'test -x "$ROOT/etc/init.d/opiz3" && ls "$ROOT"/etc/rc.d/S*opiz3'
           chk '! grep -q "^luci-app-amneziawg 0" "$MAN"'
+          chk 'grep -q awg_rekey_after_time "$ROOT/www/luci-static/resources/protocol/amneziawg.js"'
           chk 'strings "$ROOT"/usr/lib/libiwinfo.so* | grep -q device/modalias'
           grep -E '^(iwinfo|libiwinfo)' "$MAN"
           test "$FAILED" = 0
