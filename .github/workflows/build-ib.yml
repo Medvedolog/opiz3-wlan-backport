@@ -885,9 +885,8 @@ jobs:
           - Orange Pi Zero 2 (xunlong_orangepi-zero2): UNTESTED, testers wanted. Same Wi-Fi module and
             wiring as the Zero 3 (shared device tree include, PG18 reset); please report whether
             phy0 appears and an AP starts (scripts/collect-debug.sh).
-          - Orange Pi Zero 2W (xunlong_orangepi-zero2w): UNTESTED, testers wanted. The vendor device
-            tree has the same Wi-Fi wiring as the Zero 3 and the vendor loads the same driver. No
-            Ethernet on this board: connect to the OPiZ2W access point after the first boot.
+          - Orange Pi Zero 2W (xunlong_orangepi-zero2w): tested by a user (boots, AP up, clients
+            join). No Ethernet on this board: connect to the OPiZ2W access point after the first boot.
 
           The ImageBuilder archive already carries the Wi-Fi DTBs of these boards, these packages,
           the signing key and the repository:
