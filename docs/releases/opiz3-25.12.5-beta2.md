@@ -57,7 +57,16 @@ trusts. What is in the image and why:
 - Repeater on the Zero 3: client to a phone hotspot and the `OPiZ3` AP on
   one radio, 2.4 GHz channel 1, separate MACs (`1c:79:…` AP, `1e:79:…`
   client); LAN clients reach the internet through the hotspot.
-- TO BE FILLED IN BEFORE RELEASE: 1.5 GB board, USB adapter.
+- Release gate on the final test image (Zero 3, 1 GB, 2026-10-11): first
+  boot (AP, LTE modem, a phone joins the AP); Ethernet and the AP after
+  three `reboot`s, a power cycle and `sysupgrade -n -p`, no
+  `EMAC reset timeout`, no firmware loopcheck error; LuCI over the cable
+  (~20 s after boot) and over the AP (~40 s).
+- USB2/USB3 on the header: the four controllers come up
+  (`5310000`/`5311000` EHCI and OHCI); a device on the header pins is not
+  tested yet.
+- Not verified on hardware: the 1.5 GB board, USB Wi-Fi and USB Ethernet
+  adapters, the Zero 2 image.
 
 ## Known limitations
 
@@ -181,7 +190,16 @@ Issues on GitHub with `logread`, `dmesg | tail -100`,
 - Репитер на Zero 3: клиент к хотспоту телефона и точка `OPiZ3` на одном
   радио, 2,4 ГГц канал 1, разные MAC (`1c:79:…` точка, `1e:79:…` клиент);
   клиенты LAN выходят в интернет через хотспот.
-- ЗАПОЛНИТЬ ПЕРЕД ВЫПУСКОМ: плата на 1,5 ГБ, USB-свисток.
+- Проверка перед выпуском на финальном тестовом образе (Zero 3, 1 ГБ,
+  2026-10-11): первая загрузка (точка, LTE-модем, телефон подключается к
+  точке); Ethernet и точка после трёх `reboot`, передёргивания питания и
+  `sysupgrade -n -p`, без `EMAC reset timeout` и ошибок loopcheck прошивки;
+  LuCI по кабелю (~20 с после загрузки) и через точку (~40 с).
+- USB2/USB3 на гребёнке: все четыре контроллера поднимаются
+  (`5310000`/`5311000`, EHCI и OHCI); устройство на контактах гребёнки
+  пока не проверено.
+- Не проверено на железе: плата на 1,5 ГБ, USB-свистки Wi-Fi и Ethernet,
+  образ Zero 2.
 
 ## Известные ограничения
 
