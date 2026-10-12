@@ -1,5 +1,7 @@
 # Orange Pi Zero 3, Zero 2W and Zero 2: onboard Wi-Fi (AW859A / UWE5622) on OpenWrt 25.12
 
+**[Русская версия / Russian version](README.ru.md)**
+
 The Orange Pi Zero 3 has an onboard AW859A module (UNISOC UWE5622, SDIO).
 Mainline Linux has no driver for it and OpenWrt does not support it. This
 repository makes it a working OpenWrt radio on **official OpenWrt 25.12.5**:
@@ -29,6 +31,8 @@ What sets it apart from earlier builds:
 > [beta 2 notes](docs/releases/opiz3-25.12.5-beta2.md).
 
 ## Кратко по-русски
+
+Полная русская версия: [README.ru.md](README.ru.md).
 
 Встроенный Wi-Fi Orange Pi Zero 3 и Zero 2W (AW859A/UWE5622) на **официальном
 OpenWrt 25.12.5**: 2,4 и 5 ГГц, точка доступа и клиент, настройка через LuCI.
