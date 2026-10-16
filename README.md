@@ -24,9 +24,10 @@ What sets it apart from earlier builds:
 > Status: **beta 2** ([release](../../releases/tag/opiz3-25.12.5-beta2)).
 > Verified on a Zero 3: 5 GHz VHT80 and 2.4 GHz AP, client mode on 2.4 GHz,
 > LTE uplink, per-client traffic and TX rate, firmware recovery, Ethernet
-> after a warm reboot. Zero 2W: boots, AP works (user report).
-> Experimental: AP and client at the same time (repeater). Not available:
-> per-client signal (the firmware does not report it). Zero 2: untested.
+> after a warm reboot. Zero 2W: boots, AP works (user report). Zero 2:
+> AP works (two user reports). Experimental: AP and client at the same time
+> (repeater). Not available: per-client signal (the firmware does not
+> report it).
 > See [Status](#status); install and upgrade: the
 > [beta 2 notes](docs/releases/opiz3-25.12.5-beta2.md).
 
@@ -102,10 +103,10 @@ Commands in [docs/TEST-PLAN.md](docs/TEST-PLAN.md):
 | Board panel, CPU frequency page | Work (`luci-app-opiz3-status`) |
 | DFS channels (52–144), 160 MHz, 40 MHz on 2.4 GHz | Blocked (untested; unverified settings made the firmware assert, RE §45) |
 | Autoload at boot | Delayed load after the network is up, so a stuck SDIO probe cannot block Ethernet ([roadmap](#what-we-are-still-working-on), item 4) |
-| Orange Pi Zero 2 | Built, untested |
+| Orange Pi Zero 2 | AP works: two boards, two users (beta 2 image, 5 GHz VHT80, no firmware assert) |
 | Orange Pi Zero 2W | Boots, AP works (1 GB, user report; from beta 2) |
 | Ethernet after `reboot` (Zero 3) | Works from beta 2 (U-Boot resets the PHY again; `opiz3-emac` as fallback) |
-| USB2/USB3 on the 13-pin header / Zero 2W expansion board | Enabled from beta 2; controllers come up, a device on the header pins not tested yet |
+| USB2/USB3 on the 13-pin header / Zero 2W expansion board | Enabled from beta 2; controllers come up. First report (Zero 2): USB sticks on the header get power but are not detected (no device on the header buses in `dmesg`); being checked |
 
 Module parameters in `/etc/uwe5622.options`:
 
@@ -127,7 +128,7 @@ firmware assert.
 | Board | SoC | Image | State |
 |---|---|---|---|
 | Orange Pi Zero 3 | H618 | `xunlong_orangepi-zero3` | **Tested** on hardware |
-| Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Built, untested: testers wanted.** Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900 |
+| Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Wi-Fi works** (two boards, two users, beta 2 image, 2026-10-14/15: AP `OPiZ2` on 5 GHz channel 36 VHT80, phone joins, no firmware assert; U-Boot, console, SSH, LuCI, scan OK). Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900. Open: USB on the 13-pin header, Ethernet after repeated `reboot` |
 | Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Boots, Wi-Fi works** (1 GB board, test image 2026-10-07: SDIO card found, firmware MARLIN3_19B_W21.05.3 loaded, AP on 5 GHz VHT80, a client joined; from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ2W` access point of the first boot |
 
 **1.5 GB boards** (Zero 3, Zero 2W): OpenWrt 25.12.5's U-Boot 2025.01

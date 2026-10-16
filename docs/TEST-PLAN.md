@@ -358,6 +358,40 @@ A tester's debug archive, ext4 image, 1 GB board:
   first-boot log line), so the first-boot AP fix is confirmed by report;
 - not covered: 1.5 GB variant, STA mode, recovery.
 
+## Orange Pi Zero 2, beta 2 image (user reports 2026-10-14 and 2026-10-15)
+
+Two boards, two testers, `xunlong_orangepi-zero2`, `kmod-uwe5622` r30,
+diagnostic archives from `scripts/collect-debug.sh`.
+
+| Check | Board A (10-14) | Board B (10-15) |
+|---|---|---|
+| U-Boot, boot, serial console, SSH, LuCI | ✅ | ✅ |
+| SDIO card, firmware MARLIN3_19B_W21.05.3 | ✅ | ✅ (`mmc1:8800:1`) |
+| First-boot AP `OPiZ2`, 5 GHz ch 36, 80 MHz | ✅ (SSID set to hidden by the user) | ✅ |
+| Scan sees other networks | ✅ | — |
+| Phone joins the AP | — | ✅ |
+| Firmware assert / recovery in the log | none | none (11 min uptime) |
+| Name in `iwinfo` | "Unisoc UWE5622" | "Unisoc UWE5622" |
+| USB on the 13-pin header | — | ❌ sticks powered (LEDs on) but not detected: EHCI/OHCI of USB2 (`5310000`) and USB3 (`5311000`) register, no device ever appears on those buses |
+| LTE modem on the USB-A port | — | ✅ Fibocom L850-GL (first enumerates as Intel 8087:07f5, then 2cb7:0007) |
+| Modem after `reboot` | — | ❌ "Network device is not present" until Edit → Save in LuCI (see below) |
+| Ethernet after repeated `reboot` | not tested | not tested |
+
+**Modem after reboot.** The H616 has six USB host controllers (EHCI/OHCI
+pairs on USB1–USB3) and the kernel numbers their buses in probe order,
+which changes between boots: the same port is `usb2/2-1` on one boot and
+`usb6/6-1` on another. The controller (`5200000.usb`) and the port stay the
+same. A ModemManager interface stores the full sysfs path in
+`network.<iface>.device`, so after a reboot the path can point nowhere;
+LuCI's Edit → Save writes the current path, which is why that helps. Fix
+planned: a hotplug script that rewrites the path of `proto=modemmanager`
+interfaces to the same controller and port under the current bus number.
+The tester's workaround does the same from a script.
+
+**SMS.** `sms-tool` and ModemManager both open the modem's AT port
+(`/dev/ttyACM0`); use an SMS front end that talks to ModemManager
+(`luci-app-sms-manager` + `modemdata`, reported working with the L850-GL).
+
 ## Results 2026-10-06 (Zero 3, r15 image with r16/r17 fixes) → beta 1
 
 | # | Result |
