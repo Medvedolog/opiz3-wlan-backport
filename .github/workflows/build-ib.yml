@@ -852,24 +852,46 @@ jobs:
       - name: Site
         if: steps.key.outputs.ok
         run: |
+          # Start from the published site and replace only this release's
+          # directory: images of other OpenWrt releases (e.g. 25.12.5 while
+          # this builds 25.12.6) point at theirs, and their kmods cannot be
+          # upgraded across kernels. The push below stays a single fresh
+          # commit, so gh-pages does not grow with every build.
+          mkdir -p site
+          if git clone -q --depth 1 -b gh-pages \
+              "https://github.com/$GITHUB_REPOSITORY.git" old-site; then
+            rm -rf old-site/.git
+            cp -a old-site/. site/
+          fi
           D=site/$RELEASE/$TARGET-$SUBTARGET
+          rm -rf "$D"
           mkdir -p "$D" site/keys
           cp art/apk-repo/repo/* "$D/"
           cp "art/apk-repo/$KEY_NAME.pem" site/keys/
           touch site/.nojekyll
           OWNER=${GITHUB_REPOSITORY%%/*}; REPO=${GITHUB_REPOSITORY#*/}
           BASE="https://$OWNER.github.io/$REPO"
-          PKGS=$(ls "$D" | grep '\.apk$' | sed 's/\.apk$//' | tr '\n' ' ')
-          cat > site/index.html <<EOF
-          <!doctype html><meta charset="utf-8"><title>opiz3-wlan apk repo</title>
-          <h1>Orange Pi Zero 3: OpenWrt $RELEASE apk repository</h1>
-          <p>Images from this project already trust it. On another OpenWrt $RELEASE sunxi/cortexa53 system:</p>
-          <pre>wget -O /etc/apk/keys/$KEY_NAME.pem $BASE/keys/$KEY_NAME.pem
-          echo $BASE/$RELEASE/$TARGET-$SUBTARGET/packages.adb &gt;&gt; /etc/apk/repositories.d/customfeeds.list
-          apk update</pre>
-          <p>Packages: $PKGS</p>
-          EOF
+          {
+            echo '<!doctype html><meta charset="utf-8"><title>opiz3-wlan apk repo</title>'
+            echo '<h1>Orange Pi Zero 3 / Zero 2 / Zero 2W: apk repository</h1>'
+            echo '<p>Images from this project already trust it. On another OpenWrt sunxi/cortexa53 system of the same release:</p>'
+            for R in $(ls -d site/[0-9]*/ 2>/dev/null | xargs -n1 basename | sort -V -r); do
+              P=$(ls "site/$R/$TARGET-$SUBTARGET" 2>/dev/null | grep '\.apk$' | sed 's/\.apk$//' | tr '\n' ' ')
+              echo "<h2>OpenWrt $R</h2>"
+              echo "<pre>wget -O /etc/apk/keys/$KEY_NAME.pem $BASE/keys/$KEY_NAME.pem"
+              echo "echo $BASE/$R/$TARGET-$SUBTARGET/packages.adb &gt;&gt; /etc/apk/repositories.d/customfeeds.list"
+              echo "apk update</pre>"
+              echo "<p>Packages: $P</p>"
+            done
+          } > site/index.html
           find site -type f | sort
+          # the release built here must be there, and nothing else lost
+          test -s "$D/packages.adb"
+          if [ -d old-site ]; then
+            for d in $(cd old-site && ls -d [0-9]*/ 2>/dev/null); do
+              test -d "site/$d" || { echo "lost $d"; exit 1; }
+            done
+          fi
 
       - name: Push gh-pages
         if: steps.key.outputs.ok
