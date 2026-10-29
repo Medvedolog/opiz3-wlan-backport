@@ -49,7 +49,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE: 25.12.5
+  RELEASE: 25.12.6
   TARGET: sunxi
   SUBTARGET: cortexa53
   ARCH: aarch64_cortex-a53
@@ -493,7 +493,7 @@ jobs:
             cmp /tmp/fit-fdt.dtb "/tmp/$name.dtb"
           done
 
-      # OpenWrt 25.12.5 ships U-Boot 2025.01, whose H616/H618 DRAM size
+      # OpenWrt 25.12.5 and 25.12.6 ship U-Boot 2025.01, whose H616/H618 DRAM size
       # detection only knows power-of-2 sizes: the 1.5 GB Zero 3 (and Zero 2W)
       # does not boot (reported on beta 1). Support for 1.5/3 GB came with
       # U-Boot commit c47b636737 "sunxi: dram: detect non-power-of-2 sized
@@ -1033,7 +1033,7 @@ jobs:
           The packages are not in the apk repository; images point to it as usual.
 
           Update a board over the network (keeps nothing: first boot again). -p writes the
-          whole image, bootloader included: without it OpenWrt 25.12.5's sunxi sysupgrade
+          whole image, bootloader included: without it OpenWrt 25.12's sunxi sysupgrade
           writes the partitions only (its U-Boot "dd of=\$diskdev" lacks /dev/):
 
               wget -O /tmp/fw.img.gz $BASE/openwrt-$RELEASE-$TARGET-$SUBTARGET-xunlong_orangepi-zero3-ext4-sdcard.img.gz

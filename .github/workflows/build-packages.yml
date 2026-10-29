@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE: 25.12.5
+  RELEASE: 25.12.6
   TARGET: sunxi
   SUBTARGET: cortexa53
   SDK_SUFFIX: sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64
