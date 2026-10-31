@@ -51,7 +51,8 @@ LuCI/UCI, как у любого другого радио.
 Результаты на железе (Zero 3): таблица ниже — от 2026-10-06 (образ r15 с
 исправлениями r16/r17), плюс проверка перед выпуском beta 2 от 2026-10-11
 (первая загрузка, Ethernet и точка после трёх `reboot`, передёргивания
-питания и `sysupgrade`). Команды — в [docs/TEST-PLAN.md](docs/TEST-PLAN.md):
+питания и `sysupgrade`). Команды — в [docs/TEST-PLAN.md](docs/TEST-PLAN.md). Если плата
+перезагружается сама, как сохранить лог — в [docs/REBOOT-LOGGING.ru.md](docs/REBOOT-LOGGING.ru.md):
 
 | Что | Состояние |
 |---|---|
@@ -455,6 +456,7 @@ sh /tmp/collect-debug.sh
 |---|---|
 | [IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md) | Что в образе и зачем |
 | [TEST-PLAN.md](docs/TEST-PLAN.md) | Проверки на железе перед релизом, с командами; режим клиента (STA) |
+| [REBOOT-LOGGING.ru.md](docs/REBOOT-LOGGING.ru.md) | Как сохранить лог при внезапной перезагрузке: что включить и что прислать |
 | [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Разбор прошивки, включая §67 (статический разбор ACK-RSSI) |
 | [NEW-DRIVER-ARCHITECTURE.md](docs/NEW-DRIVER-ARCHITECTURE.md) | Архитектура нового драйвера, карта протокола SDIO/команд, этапы |
 | [UWE5622-DRIVER-AUDIT.md](docs/UWE5622-DRIVER-AUDIT.md) | Аудит драйвера производителя и план исправлений |

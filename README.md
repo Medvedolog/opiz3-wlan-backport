@@ -81,7 +81,8 @@ OpenWrt 25.12.5**: 2,4 и 5 ГГц, точка доступа и клиент, �
 Hardware results on the Zero 3: the table below from 2026-10-06 (r15 image +
 r16/r17 fixes), plus the beta 2 release gate of 2026-10-11 (first boot,
 Ethernet and the AP after three `reboot`s, a power cycle and `sysupgrade`).
-Commands in [docs/TEST-PLAN.md](docs/TEST-PLAN.md):
+Commands in [docs/TEST-PLAN.md](docs/TEST-PLAN.md). If the board reboots on its own,
+see [docs/REBOOT-LOGGING.md](docs/REBOOT-LOGGING.md) for how to keep the log:
 
 | Area | State |
 |---|---|
@@ -478,6 +479,7 @@ Fetch the archive with `scp -O` and attach it to a report.
 |---|---|
 | [IMAGE-PACKAGES.md](docs/IMAGE-PACKAGES.md) | What is in the image and why |
 | [TEST-PLAN.md](docs/TEST-PLAN.md) | Hardware checks before a release, with commands; client (STA) mode |
+| [REBOOT-LOGGING.md](docs/REBOOT-LOGGING.md) | Keeping the log across a spontaneous reboot: what to enable, what to send |
 | [WCNMODEM-REVERSE-ENGINEERING.md](docs/WCNMODEM-REVERSE-ENGINEERING.md) | Firmware reverse engineering, including §67 ACK-RSSI static follow-up |
 | [NEW-DRIVER-ARCHITECTURE.md](docs/NEW-DRIVER-ARCHITECTURE.md) | New driver design, SDIO/command protocol map, milestones |
 | [UWE5622-DRIVER-AUDIT.md](docs/UWE5622-DRIVER-AUDIT.md) | Audit of the vendor driver and the fix plan |
