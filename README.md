@@ -336,7 +336,9 @@ After beta 2 (in this order): the repeater stress test again on a clean
 image; the country code for the firmware (rules from the kernel's
 regulatory database); Wi-Fi recovery that does not wait on a dead firmware
 while holding the network lock; the YT8531 PHY fix sent to U-Boot
-([draft](docs/upstream/uboot-yt8531-power-down.md)). Longer term:
+([draft](docs/upstream/uboot-yt8531-power-down.md)) and U-Boot 2026.04
+proposed to OpenWrt ([PR text and instructions](docs/upstream/openwrt-uboot-sunxi-pr.md)).
+Longer term:
 
 1. **Hardware confirmation of the latest series.**
    - Patches 240–280 (`cp_txrate=1` against what the phone reports).
