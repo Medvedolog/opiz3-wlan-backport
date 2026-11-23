@@ -2,15 +2,19 @@
 
 **[Русская версия / Russian version](README.ru.md)**
 
+**[Download the current pre-release: OpenWrt 25.12.6](https://github.com/Medvedolog/opiz3-wlan-backport/releases/tag/opiz3-25.12.6-latest)**
+
+[Changelog](CHANGELOG.md) · [Release notes](docs/releases/opiz3-25.12.6-latest.md) · [Signed packages](https://medvedolog.github.io/opiz3-wlan-backport/)
+
 The Orange Pi Zero 3 has an onboard AW859A module (UNISOC UWE5622, SDIO).
 Mainline Linux has no driver for it and OpenWrt does not support it. This
-repository makes it a working OpenWrt radio on **official OpenWrt 25.12.5**:
+repository makes it a working OpenWrt radio on **official OpenWrt 25.12.6**:
 2.4 and 5 GHz, AP and client, configured from LuCI/UCI like any other radio.
 
 What sets it apart from earlier builds:
 
 - **Official OpenWrt kernel.** The image is made with the official
-  ImageBuilder, so every kmod from downloads.openwrt.org installs with `apk`.
+  ImageBuilder. Use `apk` for kmods from the matching OpenWrt release.
   The driver and the few other packages OpenWrt does not ship come from our
   own signed apk repository.
 - **The driver is fixed, not just compiled.** The vendor driver is hardened
@@ -21,22 +25,17 @@ What sets it apart from earlier builds:
   far enough to explain its failures. All findings are published in
   [docs/](docs/).
 
-> Status: **beta 2** ([release](../../releases/tag/opiz3-25.12.5-beta2)).
-> Verified on a Zero 3: 5 GHz VHT80 and 2.4 GHz AP, client mode on 2.4 GHz,
-> LTE uplink, per-client traffic and TX rate, firmware recovery, Ethernet
-> after a warm reboot. Zero 2W: boots, AP works (user report). Zero 2:
-> AP works (two user reports). Experimental: AP and client at the same time
-> (repeater). Not available: per-client signal (the firmware does not
-> report it).
-> See [Status](#status); install and upgrade: the
-> [beta 2 notes](docs/releases/opiz3-25.12.5-beta2.md).
+> **25.12.6**: image and package builds passed CI. The hardware results
+> below are from **25.12.5 beta2** and earlier builds; a separate detailed
+> hardware test for 25.12.6 is not documented. Concurrent AP + client mode
+> remains experimental. Per-client RSSI in AP mode is unavailable.
 
 ## Кратко по-русски
 
 Полная русская версия: [README.ru.md](README.ru.md).
 
 Встроенный Wi-Fi Orange Pi Zero 3 и Zero 2W (AW859A/UWE5622) на **официальном
-OpenWrt 25.12.5**: 2,4 и 5 ГГц, точка доступа и клиент, настройка через LuCI.
+OpenWrt 25.12.6**: 2,4 и 5 ГГц, точка доступа и клиент, настройка через LuCI.
 
 - **Официальные kmod ставятся через `apk`.** Образ собран из официального ядра
   через ImageBuilder. Драйвер, прошивка, AmneziaWG и Footstrap лежат в нашем
@@ -77,6 +76,8 @@ OpenWrt 25.12.5**: 2,4 и 5 ГГц, точка доступа и клиент, �
 - [Credits and license](#credits-and-license)
 
 ## Status
+
+**The results below are for 25.12.5 beta2 and earlier builds.**
 
 Hardware results on the Zero 3: the table below from 2026-10-06 (r15 image +
 r16/r17 fixes), plus the beta 2 release gate of 2026-10-11 (first boot,
@@ -132,8 +133,8 @@ firmware assert.
 | Orange Pi Zero 2 | H616 | `xunlong_orangepi-zero2` | **Wi-Fi works** (two boards, two users, beta 2 image, 2026-10-14/15: AP `OPiZ2` on 5 GHz channel 36 VHT80, phone joins, no firmware assert; U-Boot, console, SSH, LuCI, scan OK). Same Wi-Fi module and wiring as the Zero 3 (shared `sun50i-h616-orangepi-zero.dtsi`, PG18 reset); the DTB change is identical to kernel patch 900. Open: USB on the 13-pin header, Ethernet after repeated `reboot` |
 | Orange Pi Zero 2W | H618 | `xunlong_orangepi-zero2w` | **Boots, Wi-Fi works** (1 GB board, test image 2026-10-07: SDIO card found, firmware MARLIN3_19B_W21.05.3 loaded, AP on 5 GHz VHT80, a client joined; from beta 2). The vendor device tree has the same Wi-Fi nodes as its Zero 3 one (`mmc1`, PG18 reset, RTC 32 kHz clock) and the vendor loads the same UWE5622 driver. No Ethernet: use the `OPiZ2W` access point of the first boot |
 
-**1.5 GB boards** (Zero 3, Zero 2W): OpenWrt 25.12.5's U-Boot 2025.01
-detects only power-of-2 DRAM sizes and does not boot them. From beta 2 the
+**1.5 GB boards** (Zero 3, Zero 2W): OpenWrt 25.12.5 and 25.12.6 ship
+U-Boot 2025.01, which detects only power-of-2 DRAM sizes and does not boot them. From beta 2 the
 Zero 3 and Zero 2W images carry U-Boot 2026.04 (built in CI with TF-A
 2.10), which detects 1.5 and 3 GB. Beta 1 does not boot on 1.5 GB boards.
 
@@ -180,7 +181,7 @@ tree.
 
 Each build produces:
 
-- **Image** (`opiz3-image-25.12.5`): squashfs and ext4 SD-card images.
+- **Image** (`opiz3-image-25.12.6`): squashfs and ext4 SD-card images.
   Flash them like any OpenWrt sunxi image.
   From r18 the board comes up with a Wi-Fi access point on the first boot:
   SSID after the board — **`OPiZ3`**, **`OPiZ2W`** or **`OPiZ2`** — 5 GHz
@@ -198,29 +199,24 @@ Each build produces:
   > задайте пароль root (System → Administration). Пока пароль не сменён,
   > на главной странице LuCI (блок «Board») висит предупреждение.
 
-- **ImageBuilder** (`opiz3-imagebuilder-25.12.5`): the official ImageBuilder
+- **ImageBuilder** (`opiz3-imagebuilder-25.12.6`): the official ImageBuilder
   with the Wi-Fi device tree already in the kernel, our packages, the key and
   the repository. Build your own package set with it:
   ```
   make image PROFILE=xunlong_orangepi-zero3 PACKAGES="... kmod-uwe5622 uwe5622-firmware ..."
   ```
 - **apk repository** on GitHub Pages:
-  `https://<owner>.github.io/opiz3-wlan-backport/25.12.5/sunxi-cortexa53/packages.adb`.
+  `https://medvedolog.github.io/opiz3-wlan-backport/25.12.6/sunxi-cortexa53/packages.adb`.
   The image ships its key and repository address, so `apk update`
   and `apk add` work for both the official repositories and ours.
 
-Releases: fixed ones such as
-[`opiz3-25.12.5-beta2`](../../releases/tag/opiz3-25.12.5-beta2), and the
-rolling `opiz3-25.12.5-latest` built from `main`. Upgrade a board over the
-network (`-p` writes U-Boot too; keep your image type, squashfs or ext4):
-
-```sh
-wget -O /tmp/fw.img.gz https://github.com/Medvedolog/opiz3-wlan-backport/releases/download/opiz3-25.12.5-beta2/openwrt-25.12.5-sunxi-cortexa53-xunlong_orangepi-zero3-squashfs-sdcard.img.gz
-sysupgrade -p /tmp/fw.img.gz
-```
-
-Details, and what `-n` does, in the
-[beta 2 notes](docs/releases/opiz3-25.12.5-beta2.md).
+Main download: [OpenWrt 25.12.6 pre-release](https://github.com/Medvedolog/opiz3-wlan-backport/releases/tag/opiz3-25.12.6-latest).
+Choose the exact board: `xunlong_orangepi-zero3`, `xunlong_orangepi-zero2`,
+or `xunlong_orangepi-zero2w`. Verify the image using `sha256sums`.
+For your first 25.12.6 test, use a spare microSD card.
+[25.12.5 beta2](../../releases/tag/opiz3-25.12.5-beta2) remains available for
+comparison and rollback, and its [signed feed](https://medvedolog.github.io/opiz3-wlan-backport/) remains online.
+Do not mix 25.12.5 and 25.12.6 kernel packages.
 
 The default image includes:
 - LuCI with the Footstrap theme (project palette; paw-print background
@@ -302,7 +298,7 @@ the firmware's behaviour stayed as they were.
 
 | | Vendor driver / earlier builds | This project |
 |---|---|---|
-| OpenWrt | 24.10 / 25.12.0, custom kernel | 25.12.5, **official kernel** |
+| OpenWrt | 24.10 / 25.12.0, custom kernel | 25.12.6, **official kernel** |
 | Official kmods via `apk` | No (kernel ABI differs) | **Yes** |
 | Driver base | Older vendor source | Current Armbian `cc2835a` + 30 patches |
 | 5 GHz AP | Via DeepAQ's DS IE fix | Same fix, root cause found in the firmware |
